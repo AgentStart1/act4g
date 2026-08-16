@@ -1,0 +1,2 @@
+-keep class dev.gpui.mobile.** { *; }
+-dontwarn dev.gpui.mobile.**

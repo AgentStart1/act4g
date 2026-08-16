@@ -1,0 +1,104 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_FONTCONFIG_DLOPEN: "on"
+
+jobs:
+  build:
+    name: Build APK (arm64-v8a)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r25c
+        run: |
+          sdkmanager --install "ndk;25.2.9519653"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.4.1"
+
+      - name: Clone gpui-mobile (Java sources + assets)
+        run: git clone --depth=1 https://github.com/itsbalamurali/gpui-mobile /tmp/gpui-mobile
+
+      - name: Copy gpui-mobile Java sources
+        run: |
+          cp -r /tmp/gpui-mobile/example/android/gradle/app/src/main/java \
+                android/gradle/app/src/main/
+
+      - name: Copy launcher icons
+        run: |
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p android/gradle/app/src/main/res/mipmap-$density
+            cp /tmp/gpui-mobile/example/android/gradle/app/src/main/res/mipmap-$density/ic_launcher.png \
+               android/gradle/app/src/main/res/mipmap-$density/
+            cp /tmp/gpui-mobile/example/android/gradle/app/src/main/res/mipmap-$density/ic_launcher_round.png \
+               android/gradle/app/src/main/res/mipmap-$density/
+          done
+
+      - name: Copy drawable resources
+        run: |
+          mkdir -p android/gradle/app/src/main/res/drawable
+          cp /tmp/gpui-mobile/example/android/gradle/app/src/main/res/drawable/* \
+             android/gradle/app/src/main/res/drawable/ 2>/dev/null || true
+
+      - name: Copy NotoColorEmoji font
+        run: |
+          mkdir -p android/gradle/app/src/main/assets/fonts
+          cp /tmp/gpui-mobile/example/android/gradle/app/src/main/assets/fonts/NotoColorEmoji.ttf \
+             android/gradle/app/src/main/assets/fonts/
+
+      - name: Build Rust library
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+        run: |
+          cargo ndk \
+            -t arm64-v8a \
+            -p 26 \
+            --manifest-path Cargo.toml \
+            -o android/gradle/app/src/main/jniLibs \
+            build --release
+
+      - name: Build APK
+        working-directory: android/gradle
+        run: gradle assembleRelease --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: act4g-release
+          path: android/gradle/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 30
