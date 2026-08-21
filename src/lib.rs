@@ -4,7 +4,7 @@ pub mod api;
 pub mod screens;
 
 #[cfg(target_os = "android")]
-use gpui::{App, Application, WindowOptions};
+use gpui::{App, AppContext, Application, WindowOptions};
 #[cfg(target_os = "android")]
 use gpui_mobile::android::jni;
 #[cfg(target_os = "android")]

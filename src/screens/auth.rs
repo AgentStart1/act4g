@@ -41,7 +41,7 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::Int
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_4xl()
+                        .text_3xl()
                         .child(""),
                 )
                 .child(
@@ -189,7 +189,7 @@ fn waiting_view(
                         .justify_center()
                         .child(
                             div()
-                                .text_4xl()
+                                .text_3xl()
                                 .text_color(rgb(TEXT))
                                 .child(code.clone()),
                         ),

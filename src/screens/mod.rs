@@ -69,11 +69,11 @@ impl Router {
         let cancel = Arc::new(AtomicBool::new(false));
         self.polling_cancel = Some(cancel.clone());
 
-        cx.spawn(|entity, mut async_cx| async move {
+        cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
             let client = match crate::api::make_client() {
                 Ok(c) => c,
                 Err(e) => {
-                    entity.update(&mut async_cx, |router, cx| {
+                    entity.update(cx, |router, cx| {
                         router.auth_phase = AuthPhase::Error(format!("Client error: {e}"));
                         cx.notify();
                     }).ok();
@@ -84,7 +84,7 @@ impl Router {
             let code_resp = match crate::api::request_device_code(&client).await {
                 Ok(r) => r,
                 Err(e) => {
-                    entity.update(&mut async_cx, |router, cx| {
+                    entity.update(cx, |router, cx| {
                         router.auth_phase = AuthPhase::Error(format!("Failed to start auth: {e}"));
                         cx.notify();
                     }).ok();
@@ -95,7 +95,7 @@ impl Router {
             let device_code = code_resp.device_code.clone();
             let interval = code_resp.interval.max(5);
 
-            entity.update(&mut async_cx, |router, cx| {
+            entity.update(cx, |router, cx| {
                 router.auth_phase = AuthPhase::WaitingForUser {
                     user_code: code_resp.user_code.clone(),
                     verification_uri: code_resp.verification_uri.clone(),
@@ -118,7 +118,7 @@ impl Router {
 
                 let poll_result = crate::api::poll_token(&client, &device_code).await;
 
-                let should_break = entity.update(&mut async_cx, |router, cx| {
+                let should_break = entity.update(cx, |router, cx| {
                     match poll_result {
                         Ok(crate::api::TokenResponse { access_token: Some(new_token), .. }) => {
                             let t = new_token.clone();
@@ -159,7 +159,7 @@ impl Router {
         self.notifications_loading = true;
         cx.notify();
 
-        cx.spawn(|entity, mut async_cx| async move {
+        cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
             let client = match crate::api::make_client() {
                 Ok(c) => c,
                 Err(_) => return,
@@ -168,7 +168,7 @@ impl Router {
             let user_result = crate::api::get_user(&client, &token).await;
             let notifs_result = crate::api::get_notifications(&client, &token).await;
 
-            entity.update(&mut async_cx, |router, cx| {
+            entity.update(cx, |router, cx| {
                 if let Ok(user) = user_result {
                     router.user = Some(user);
                 }
@@ -192,9 +192,9 @@ impl gpui::Render for Router {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
-        set_system_chrome(SystemChromeStyle {
-            status_bar: StatusBarContentStyle::Light,
-            navigation_bar: StatusBarContentStyle::Light,
+        set_system_chrome(&SystemChromeStyle {
+            status_bar_style: StatusBarContentStyle::Light,
+            ..Default::default()
         });
 
         div()

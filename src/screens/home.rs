@@ -256,7 +256,7 @@ fn notif_item(notif: &Notification) -> impl gpui::IntoElement {
                 .h(px(20.))
                 .mt(px(2.))
                 .rounded(px(4.))
-                .bg(rgb(type_color).opacity(0.15))
+                .bg(gpui::rgba(type_color * 256 + 0x26))
                 .flex()
                 .items_center()
                 .justify_center()

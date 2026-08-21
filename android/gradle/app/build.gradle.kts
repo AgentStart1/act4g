@@ -47,6 +47,7 @@ android {
 
     packaging {
         jniLibs {
+            useLegacyPackaging = false
             keepDebugSymbols += listOf("*/arm64-v8a/libact4g.so")
         }
     }
