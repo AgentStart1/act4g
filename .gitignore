@@ -1,0 +1,21 @@
+# Rust build output
+/target/
+
+# Gradle and Android build output
+.gradle/
+**/build/
+*.apk
+*.aab
+*.dex
+*.class
+
+# Native libraries copied into the Android package by the build
+/android/gradle/app/src/main/jniLibs/**/*.so
+
+# Local Android SDK configuration
+local.properties
+
+# IDE and local tooling state
+.idea/
+*.iml
+/.codex-tmp/
