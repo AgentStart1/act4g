@@ -38,21 +38,34 @@ pub struct Router {
     pub user: Option<GitHubUser>,
     pub notifications: Vec<Notification>,
     pub notifications_loading: bool,
+    pub home_error: Option<String>,
     pub search_query: String,
 }
 
 impl Router {
-    pub fn new() -> Self {
-        Self {
-            current_screen: Screen::Auth,
+    pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+        let saved_token = crate::credentials::load_token();
+        let mut router = Self {
+            current_screen: if saved_token.is_some() {
+                Screen::Home
+            } else {
+                Screen::Auth
+            },
             auth_phase: AuthPhase::Idle,
             polling_cancel: None,
-            token: None,
+            token: saved_token.clone(),
             user: None,
             notifications: Vec::new(),
             notifications_loading: false,
+            home_error: None,
             search_query: String::new(),
+        };
+
+        if let Some(token) = saved_token {
+            router.load_home_data(cx, token);
         }
+
+        router
     }
 
     pub fn navigate_to(&mut self, screen: Screen) {
@@ -73,10 +86,12 @@ impl Router {
             let client = match crate::api::make_client() {
                 Ok(c) => c,
                 Err(e) => {
-                    entity.update(cx, |router, cx| {
-                        router.auth_phase = AuthPhase::Error(format!("Client error: {e}"));
-                        cx.notify();
-                    }).ok();
+                    entity
+                        .update(cx, |router, cx| {
+                            router.auth_phase = AuthPhase::Error(format!("Client error: {e}"));
+                            cx.notify();
+                        })
+                        .ok();
                     return;
                 }
             };
@@ -84,33 +99,64 @@ impl Router {
             let code_resp = match crate::api::request_device_code(&client).await {
                 Ok(r) => r,
                 Err(e) => {
-                    entity.update(cx, |router, cx| {
-                        router.auth_phase = AuthPhase::Error(format!("Failed to start auth: {e}"));
-                        cx.notify();
-                    }).ok();
+                    entity
+                        .update(cx, |router, cx| {
+                            router.auth_phase =
+                                AuthPhase::Error(format!("Failed to start auth: {e}"));
+                            cx.notify();
+                        })
+                        .ok();
                     return;
                 }
             };
 
             let device_code = code_resp.device_code.clone();
             let interval = code_resp.interval.max(5);
+            let expires_at =
+                std::time::Instant::now() + std::time::Duration::from_secs(code_resp.expires_in);
 
-            entity.update(cx, |router, cx| {
-                router.auth_phase = AuthPhase::WaitingForUser {
-                    user_code: code_resp.user_code.clone(),
-                    verification_uri: code_resp.verification_uri.clone(),
-                    device_code: code_resp.device_code.clone(),
-                    interval,
-                };
-                cx.notify();
-            }).ok();
+            entity
+                .update(cx, |router, cx| {
+                    router.auth_phase = AuthPhase::WaitingForUser {
+                        user_code: code_resp.user_code.clone(),
+                        verification_uri: code_resp.verification_uri.clone(),
+                        device_code: code_resp.device_code.clone(),
+                        interval,
+                    };
+                    cx.notify();
+                })
+                .ok();
+
+            let authorization_url =
+                device_authorization_url(&code_resp.verification_uri, &code_resp.user_code);
+            match gpui_mobile::packages::url_launcher::launch_url(&authorization_url) {
+                Ok(true) => {}
+                Ok(false) => log::warn!("No app could open the GitHub authorization URL"),
+                Err(error) => log::warn!("Failed to open GitHub authorization URL: {error}"),
+            }
+
+            let mut poll_interval = interval;
 
             loop {
                 if cancel.load(Ordering::Acquire) {
                     break;
                 }
 
-                smol::Timer::after(std::time::Duration::from_secs(interval)).await;
+                if std::time::Instant::now() >= expires_at {
+                    entity
+                        .update(cx, |router, cx| {
+                            router.auth_phase = AuthPhase::Error(
+                                "The device code expired. Start sign in again to get a new code."
+                                    .to_string(),
+                            );
+                            router.polling_cancel = None;
+                            cx.notify();
+                        })
+                        .ok();
+                    break;
+                }
+
+                smol::Timer::after(std::time::Duration::from_secs(poll_interval)).await;
 
                 if cancel.load(Ordering::Acquire) {
                     break;
@@ -118,10 +164,30 @@ impl Router {
 
                 let poll_result = crate::api::poll_token(&client, &device_code).await;
 
-                let should_break = entity.update(cx, |router, cx| {
-                    match poll_result {
-                        Ok(crate::api::TokenResponse { access_token: Some(new_token), .. }) => {
+                if let Err(error) = &poll_result {
+                    log::warn!(
+                        "Token poll failed; retrying while the device code is valid: {error:#}"
+                    );
+                    continue;
+                }
+
+                if matches!(
+                    &poll_result,
+                    Ok(crate::api::TokenResponse { error: Some(error), .. }) if error == "slow_down"
+                ) {
+                    poll_interval += 5;
+                }
+
+                let should_break = entity
+                    .update(cx, |router, cx| match poll_result {
+                        Ok(crate::api::TokenResponse {
+                            access_token: Some(new_token),
+                            ..
+                        }) => {
                             let t = new_token.clone();
+                            if let Err(error) = crate::credentials::save_token(&new_token) {
+                                log::warn!("Failed to persist GitHub session: {error}");
+                            }
                             router.token = Some(new_token);
                             router.polling_cancel = None;
                             router.navigate_to(Screen::Home);
@@ -129,54 +195,119 @@ impl Router {
                             router.load_home_data(cx, t);
                             true
                         }
-                        Ok(crate::api::TokenResponse { error: Some(ref e), .. })
-                            if e == "authorization_pending" || e == "slow_down" =>
-                        {
-                            false
-                        }
+                        Ok(crate::api::TokenResponse {
+                            error: Some(ref e), ..
+                        }) if e == "authorization_pending" || e == "slow_down" => false,
                         Ok(crate::api::TokenResponse { error: Some(e), .. }) => {
                             router.auth_phase = AuthPhase::Error(format!("Auth denied: {e}"));
                             cx.notify();
                             true
                         }
                         Ok(_) => false,
-                        Err(e) => {
-                            router.auth_phase = AuthPhase::Error(format!("Network error: {e}"));
-                            cx.notify();
-                            true
-                        }
-                    }
-                }).unwrap_or(true);
+                        Err(_) => false,
+                    })
+                    .unwrap_or(true);
 
                 if should_break {
                     break;
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
     pub fn load_home_data(&mut self, cx: &mut gpui::Context<Self>, token: String) {
         self.notifications_loading = true;
+        self.home_error = None;
         cx.notify();
 
         cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
             let client = match crate::api::make_client() {
                 Ok(c) => c,
-                Err(_) => return,
+                Err(error) => {
+                    log::error!("Failed to create GitHub client: {error:#}");
+                    entity
+                        .update(cx, |router, cx| {
+                            router.notifications_loading = false;
+                            router.home_error = Some(
+                                "GitHub could not be reached. Check your connection and try again."
+                                    .to_string(),
+                            );
+                            cx.notify();
+                        })
+                        .ok();
+                    return;
+                }
             };
 
             let user_result = crate::api::get_user(&client, &token).await;
             let notifs_result = crate::api::get_notifications(&client, &token).await;
+            let session_expired = user_result
+                .as_ref()
+                .err()
+                .is_some_and(crate::api::is_unauthorized)
+                || notifs_result
+                    .as_ref()
+                    .err()
+                    .is_some_and(crate::api::is_unauthorized);
 
-            entity.update(cx, |router, cx| {
-                if let Ok(user) = user_result {
-                    router.user = Some(user);
-                }
-                router.notifications = notifs_result.unwrap_or_default();
-                router.notifications_loading = false;
-                cx.notify();
-            }).ok();
-        }).detach();
+            entity
+                .update(cx, |router, cx| {
+                    if session_expired {
+                        if let Err(error) = crate::credentials::clear_token() {
+                            log::warn!("Failed to remove expired GitHub session: {error}");
+                        }
+                        router.token = None;
+                        router.user = None;
+                        router.notifications.clear();
+                        router.notifications_loading = false;
+                        router.current_screen = Screen::Auth;
+                        router.auth_phase = AuthPhase::Error(
+                            "Your GitHub session expired. Sign in again to continue.".to_string(),
+                        );
+                        cx.notify();
+                        return;
+                    }
+
+                    let user_failed = match user_result {
+                        Ok(user) => {
+                            router.user = Some(user);
+                            false
+                        }
+                        Err(error) => {
+                            log::warn!("Failed to load GitHub profile: {error:#}");
+                            true
+                        }
+                    };
+
+                    let notifications_failed = match notifs_result {
+                        Ok(notifications) => {
+                            router.notifications = notifications;
+                            false
+                        }
+                        Err(error) => {
+                            log::warn!("Failed to load GitHub notifications: {error:#}");
+                            true
+                        }
+                    };
+
+                    router.home_error = match (user_failed, notifications_failed) {
+                    (_, true) => Some(
+                        "Notifications could not be refreshed. Check your connection and try again."
+                            .to_string(),
+                    ),
+                    (true, false) => Some(
+                        "Notifications loaded, but your profile is temporarily unavailable."
+                            .to_string(),
+                    ),
+                    (false, false) => None,
+                };
+                    router.notifications_loading = false;
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
     }
 
     pub fn refresh_notifications(&mut self, cx: &mut gpui::Context<Self>) {
@@ -184,6 +315,46 @@ impl Router {
             self.load_home_data(cx, token);
         }
     }
+
+    pub fn sign_out(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Err(error) = crate::credentials::clear_token() {
+            log::warn!("Failed to remove saved GitHub session: {error}");
+        }
+        self.token = None;
+        self.user = None;
+        self.notifications.clear();
+        self.notifications_loading = false;
+        self.home_error = None;
+        self.search_query.clear();
+        self.auth_phase = AuthPhase::Idle;
+        self.navigate_to(Screen::Auth);
+        gpui_mobile::set_text_input_callback(None);
+        gpui_mobile::hide_keyboard();
+        cx.notify();
+    }
+}
+
+pub fn safe_area_insets() -> (f32, f32, f32, f32) {
+    #[cfg(target_os = "android")]
+    {
+        if let Some(window) =
+            gpui_mobile::android::jni::platform().and_then(|platform| platform.primary_window())
+        {
+            let insets = window.safe_area_insets_logical();
+            return (insets.top, insets.bottom, insets.left, insets.right);
+        }
+    }
+
+    gpui_mobile::safe_area_insets()
+}
+
+pub fn device_authorization_url(verification_uri: &str, user_code: &str) -> String {
+    let separator = if verification_uri.contains('?') {
+        '&'
+    } else {
+        '?'
+    };
+    format!("{verification_uri}{separator}act4g_code={user_code}")
 }
 
 impl gpui::Render for Router {

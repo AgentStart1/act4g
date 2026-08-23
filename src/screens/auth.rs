@@ -1,6 +1,6 @@
 use gpui::{div, prelude::*, px, rgb};
 
-use super::{AuthPhase, Router};
+use super::{device_authorization_url, safe_area_insets, AuthPhase, Router};
 
 const BG: u32 = 0x0D1117;
 const SURFACE: u32 = 0x161B22;
@@ -12,7 +12,7 @@ const RED: u32 = 0xF85149;
 const CODE_BG: u32 = 0x21262D;
 
 pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
-    let (safe_top, safe_bottom, _, _) = gpui_mobile::safe_area_insets();
+    let (safe_top, safe_bottom, _, _) = safe_area_insets();
 
     div()
         .flex()
@@ -41,15 +41,11 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::Int
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_3xl()
-                        .child(""),
+                        .text_xl()
+                        .text_color(rgb(ACCENT))
+                        .child("4g"),
                 )
-                .child(
-                    div()
-                        .text_3xl()
-                        .text_color(rgb(TEXT))
-                        .child("act4g"),
-                )
+                .child(div().text_3xl().text_color(rgb(TEXT)).child("act4g"))
                 .child(
                     div()
                         .text_sm()
@@ -124,10 +120,16 @@ fn spinner_view(msg: &str) -> impl gpui::IntoElement {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_xl()
-                .child("⟳"),
+                .text_sm()
+                .text_color(rgb(ACCENT))
+                .child("..."),
         )
-        .child(div().text_sm().text_color(rgb(SUBTEXT)).child(msg.to_string()))
+        .child(
+            div()
+                .text_sm()
+                .text_color(rgb(SUBTEXT))
+                .child(msg.to_string()),
+        )
 }
 
 fn waiting_view(
@@ -137,6 +139,7 @@ fn waiting_view(
 ) -> impl gpui::IntoElement {
     let code = user_code.to_string();
     let uri = verification_uri.to_string();
+    let open_uri = device_authorization_url(&uri, &code);
 
     div()
         .flex()
@@ -159,7 +162,7 @@ fn waiting_view(
                     div()
                         .text_sm()
                         .text_color(rgb(SUBTEXT))
-                        .child("1. Open the URL below in your browser"),
+                        .child("1. Open GitHub in your browser"),
                 )
                 .child(
                     div()
@@ -187,12 +190,7 @@ fn waiting_view(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(
-                            div()
-                                .text_3xl()
-                                .text_color(rgb(TEXT))
-                                .child(code.clone()),
-                        ),
+                        .child(div().text_3xl().text_color(rgb(TEXT)).child(code.clone())),
                 )
                 .child(
                     div()
@@ -201,6 +199,32 @@ fn waiting_view(
                         .text_center()
                         .child("Waiting for authorization…"),
                 ),
+        )
+        // Re-open authorization if the browser did not navigate correctly.
+        .child(
+            div()
+                .w_full()
+                .h(px(52.))
+                .rounded_lg()
+                .bg(rgb(TEXT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |_router, _, _, _cx| {
+                        match gpui_mobile::packages::url_launcher::launch_url(&open_uri) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                log::warn!("No app could open the GitHub authorization URL")
+                            }
+                            Err(error) => {
+                                log::warn!("Failed to open GitHub authorization URL: {error}")
+                            }
+                        }
+                    }),
+                )
+                .child(div().text_base().text_color(rgb(BG)).child("Open GitHub")),
         )
         // Cancel button
         .child(

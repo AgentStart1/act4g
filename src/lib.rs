@@ -1,6 +1,7 @@
 extern crate gpui_mobile;
 
 pub mod api;
+pub mod credentials;
 pub mod screens;
 
 #[cfg(target_os = "android")]
@@ -34,16 +35,16 @@ fn android_main(app: android_activity::AndroidApp) {
 
     Application::with_platform(shared.into_rc()).run(|cx: &mut App| {
         // HTTP client used by gpui::img() to load remote avatars.
-        let http_client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .build()
-            .expect("reqwest client");
+        let http_client = api::make_client().expect("reqwest client");
         let http_client: reqwest_client::ReqwestClient = http_client.into();
         cx.set_http_client(std::sync::Arc::new(http_client));
 
         match cx.open_window(
-            WindowOptions { window_bounds: None, ..Default::default() },
-            |_, cx| cx.new(|_| Router::new()),
+            WindowOptions {
+                window_bounds: None,
+                ..Default::default()
+            },
+            |_, cx| cx.new(Router::new),
         ) {
             Ok(_) => log::info!("window opened"),
             Err(e) => log::error!("open_window failed: {e:#}"),

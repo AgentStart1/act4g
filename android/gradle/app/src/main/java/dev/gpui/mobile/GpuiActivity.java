@@ -1,6 +1,7 @@
 package dev.gpui.mobile;
 
 import android.app.NativeActivity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -34,9 +35,15 @@ public class GpuiActivity extends NativeActivity {
 
     /** Whether the native .so has been loaded via System.loadLibrary. */
     private static volatile boolean sNativeLibLoaded = false;
+    private static volatile Context sAppContext;
+
+    public static Context getAppContext() {
+        return sAppContext;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        sAppContext = getApplicationContext();
         // Install the splash screen BEFORE calling super.onCreate().
         // This is required by the AndroidX SplashScreen API.
         SplashScreen splash = SplashScreen.installSplashScreen(this);

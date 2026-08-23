@@ -1,7 +1,7 @@
 use gpui::{div, prelude::*, px, rgb, SharedString};
 use std::cell::RefCell;
 
-use super::Router;
+use super::{safe_area_insets, Router};
 use crate::api::Notification;
 
 const BG: u32 = 0x0D1117;
@@ -11,7 +11,6 @@ const TEXT: u32 = 0xC9D1D9;
 const SUBTEXT: u32 = 0x8B949E;
 const ACCENT: u32 = 0x58A6FF;
 const GREEN: u32 = 0x3FB950;
-const RED: u32 = 0xF85149;
 const PURPLE: u32 = 0xBC8CFF;
 const YELLOW: u32 = 0xF0883E;
 
@@ -44,11 +43,13 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> impl gpui:
         }
     });
 
-    let (safe_top, safe_bottom, _, _) = gpui_mobile::safe_area_insets();
+    let (safe_top, safe_bottom, _, _) = safe_area_insets();
     let search_focused = !router.search_query.is_empty()
         || gpui_mobile::TEXT_INPUT_DIRTY.load(std::sync::atomic::Ordering::Acquire);
 
     let filtered = filter_notifications(&router.notifications, &router.search_query);
+    let home_error = router.home_error.clone();
+    let is_searching = !router.search_query.is_empty();
 
     div()
         .flex()
@@ -66,19 +67,41 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> impl gpui:
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()
-                .child(if router.notifications_loading && router.notifications.is_empty() {
-                    loading_placeholder().into_any_element()
-                } else if filtered.is_empty() {
-                    empty_inbox(router.notifications_loading).into_any_element()
-                } else {
-                    inbox_list(&filtered, cx).into_any_element()
-                }),
+                .children(home_error.as_ref().and_then(|message| {
+                    if router.notifications.is_empty() {
+                        None
+                    } else {
+                        Some(error_banner(message, cx).into_any_element())
+                    }
+                }))
+                .child(
+                    if router.notifications_loading && router.notifications.is_empty() {
+                        loading_placeholder().into_any_element()
+                    } else if let Some(message) = home_error
+                        .as_ref()
+                        .filter(|_| router.notifications.is_empty())
+                    {
+                        error_state(message, cx).into_any_element()
+                    } else if filtered.is_empty() {
+                        empty_inbox(is_searching).into_any_element()
+                    } else {
+                        inbox_list(&filtered, router.notifications_loading, cx).into_any_element()
+                    },
+                ),
         )
 }
 
-fn top_bar(router: &Router, search_focused: bool, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+fn top_bar(
+    router: &Router,
+    search_focused: bool,
+    cx: &mut gpui::Context<Router>,
+) -> impl gpui::IntoElement {
     let query = router.search_query.clone();
-    let placeholder = if query.is_empty() { "Search…" } else { "" };
+    let placeholder = if query.is_empty() {
+        "Search notifications"
+    } else {
+        ""
+    };
     let display_text = if query.is_empty() {
         placeholder.to_string()
     } else {
@@ -86,10 +109,19 @@ fn top_bar(router: &Router, search_focused: bool, cx: &mut gpui::Context<Router>
     };
     let display_color = if query.is_empty() { SUBTEXT } else { TEXT };
 
-    // Avatar: initials or first letter of login
+    let account_label = router
+        .user
+        .as_ref()
+        .map(|user| format!("@{}", user.login))
+        .unwrap_or_else(|| "GitHub notifications".to_string());
+
+    // Avatar: remote image when available, otherwise the account initial.
     let (initials, has_avatar, avatar_url) = match &router.user {
         Some(u) => {
-            let init = u.login.chars().next()
+            let init = u
+                .login
+                .chars()
+                .next()
                 .map(|c| c.to_uppercase().to_string())
                 .unwrap_or_else(|| "?".to_string());
             (init, !u.avatar_url.is_empty(), u.avatar_url.clone())
@@ -99,23 +131,97 @@ fn top_bar(router: &Router, search_focused: bool, cx: &mut gpui::Context<Router>
 
     div()
         .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .px_4()
-        .py_3()
+        .flex_col()
+        .gap_4()
+        .px_5()
+        .pt_3()
+        .pb_4()
         .border_b_1()
         .border_color(rgb(BORDER))
-        // Search bar (flex-1)
+        // Page title and account identity.
         .child(
             div()
-                .flex_1()
-                .h(px(40.))
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(div().text_xl().text_color(rgb(TEXT)).child("Inbox"))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(SUBTEXT))
+                                .child(account_label),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .px_3()
+                                .py_2()
+                                .rounded_lg()
+                                .text_xs()
+                                .text_color(rgb(SUBTEXT))
+                                .on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    cx.listener(|router, _, _, cx| router.sign_out(cx)),
+                                )
+                                .child("Sign out"),
+                        )
+                        .child(if has_avatar {
+                            div()
+                                .size(px(40.))
+                                .rounded_full()
+                                .overflow_hidden()
+                                .border_1()
+                                .border_color(rgb(BORDER))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    gpui::img(SharedString::from(avatar_url))
+                                        .size(px(40.))
+                                        .rounded_full(),
+                                )
+                                .into_any_element()
+                        } else {
+                            div()
+                                .size(px(40.))
+                                .rounded_full()
+                                .bg(rgb(ACCENT))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_sm()
+                                .text_color(rgb(BG))
+                                .child(initials)
+                                .into_any_element()
+                        }),
+                ),
+        )
+        // Search field.
+        .child(
+            div()
+                .w_full()
+                .h(px(44.))
                 .px_4()
-                .rounded_full()
+                .rounded_lg()
                 .bg(rgb(SURFACE))
                 .border_1()
-                .border_color(if search_focused { rgb(ACCENT) } else { rgb(BORDER) })
+                .border_color(if search_focused {
+                    rgb(ACCENT)
+                } else {
+                    rgb(BORDER)
+                })
                 .flex()
                 .flex_row()
                 .items_center()
@@ -127,7 +233,6 @@ fn top_bar(router: &Router, search_focused: bool, cx: &mut gpui::Context<Router>
                         gpui_mobile::show_keyboard_with_type(gpui_mobile::KeyboardType::Default);
                     }),
                 )
-                .child(div().text_sm().text_color(rgb(SUBTEXT)).child("🔍"))
                 .child(
                     div()
                         .flex_1()
@@ -136,56 +241,32 @@ fn top_bar(router: &Router, search_focused: bool, cx: &mut gpui::Context<Router>
                         .child(display_text),
                 )
                 .children(if !query.is_empty() {
-                    vec![
-                        div()
-                            .text_xs()
-                            .text_color(rgb(SUBTEXT))
-                            .on_mouse_down(
-                                gpui::MouseButton::Left,
-                                cx.listener(|router, _, _, cx| {
-                                    router.search_query.clear();
-                                    gpui_mobile::hide_keyboard();
-                                    cx.notify();
-                                }),
-                            )
-                            .child("✕")
-                            .into_any_element()
-                    ]
+                    vec![div()
+                        .text_xs()
+                        .text_color(rgb(SUBTEXT))
+                        .px_2()
+                        .py_1()
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|router, _, _, cx| {
+                                router.search_query.clear();
+                                gpui_mobile::hide_keyboard();
+                                cx.notify();
+                            }),
+                        )
+                        .child("Clear")
+                        .into_any_element()]
                 } else {
                     vec![]
                 }),
         )
-        // Avatar
-        .child(if has_avatar {
-            div()
-                .size(px(36.))
-                .rounded_full()
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    gpui::img(SharedString::from(avatar_url))
-                        .size(px(36.))
-                        .rounded_full(),
-                )
-                .into_any_element()
-        } else {
-            div()
-                .size(px(36.))
-                .rounded_full()
-                .bg(rgb(ACCENT))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_sm()
-                .text_color(rgb(BG))
-                .child(initials)
-                .into_any_element()
-        })
 }
 
-fn inbox_list(notifications: &[&Notification], cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+fn inbox_list(
+    notifications: &[&Notification],
+    loading: bool,
+    cx: &mut gpui::Context<Router>,
+) -> impl gpui::IntoElement {
     div()
         .flex()
         .flex_col()
@@ -219,15 +300,22 @@ fn inbox_list(notifications: &[&Notification], cx: &mut gpui::Context<Router>) -
                 )
                 .child(
                     div()
+                        .h(px(36.))
+                        .px_3()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .flex()
+                        .items_center()
                         .text_sm()
-                        .text_color(rgb(SUBTEXT))
+                        .text_color(if loading { rgb(SUBTEXT) } else { rgb(ACCENT) })
                         .on_mouse_down(
                             gpui::MouseButton::Left,
                             cx.listener(|router, _, _, cx| {
                                 router.refresh_notifications(cx);
                             }),
                         )
-                        .child("↺ Refresh"),
+                        .child(if loading { "Refreshing..." } else { "Refresh" }),
                 ),
         )
         // Notification items
@@ -281,25 +369,10 @@ fn notif_item(notif: &Notification) -> impl gpui::IntoElement {
                         .items_center()
                         .justify_between()
                         .gap_2()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(SUBTEXT))
-                                .child(repo),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(rgb(SUBTEXT))
-                                .child(date),
-                        ),
+                        .child(div().text_xs().text_color(rgb(SUBTEXT)).child(repo))
+                        .child(div().text_xs().text_color(rgb(SUBTEXT)).child(date)),
                 )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(TEXT))
-                        .child(title),
-                )
+                .child(div().text_sm().text_color(rgb(TEXT)).child(title))
                 .child(
                     div()
                         .text_xs()
@@ -327,11 +400,28 @@ fn loading_placeholder() -> impl gpui::IntoElement {
         .flex_1()
         .gap_3()
         .py_16()
-        .child(div().text_3xl().child("⟳"))
-        .child(div().text_sm().text_color(rgb(SUBTEXT)).child("Loading notifications…"))
+        .child(
+            div()
+                .size(px(48.))
+                .rounded_full()
+                .border_2()
+                .border_color(rgb(ACCENT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(rgb(ACCENT))
+                .child("..."),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(rgb(SUBTEXT))
+                .child("Loading notifications…"),
+        )
 }
 
-fn empty_inbox(loading: bool) -> impl gpui::IntoElement {
+fn empty_inbox(is_searching: bool) -> impl gpui::IntoElement {
     div()
         .flex()
         .flex_col()
@@ -340,12 +430,135 @@ fn empty_inbox(loading: bool) -> impl gpui::IntoElement {
         .flex_1()
         .gap_3()
         .py_16()
-        .child(div().text_3xl().child(if loading { "⟳" } else { "✓" }))
         .child(
             div()
+                .size(px(64.))
+                .rounded_full()
+                .bg(rgb(SURFACE))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .flex()
+                .items_center()
+                .justify_center()
                 .text_sm()
+                .text_color(rgb(GREEN))
+                .child(if is_searching { "0" } else { "OK" }),
+        )
+        .child(
+            div()
+                .text_base()
+                .text_color(rgb(TEXT))
+                .child(if is_searching {
+                    "No matches"
+                } else {
+                    "You're all caught up"
+                }),
+        )
+        .child(
+            div()
+                .text_xs()
                 .text_color(rgb(SUBTEXT))
-                .child(if loading { "Loading…" } else { "All caught up!" }),
+                .text_center()
+                .child(if is_searching {
+                    "Try another repository or notification title"
+                } else {
+                    "New GitHub notifications will appear here"
+                }),
+        )
+}
+
+fn error_banner(message: &str, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+    let message = message.to_string();
+    div()
+        .mx_4()
+        .mt_4()
+        .p_3()
+        .rounded_lg()
+        .bg(rgb(SURFACE))
+        .border_1()
+        .border_color(rgb(YELLOW))
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .child(
+            div()
+                .flex_1()
+                .text_xs()
+                .text_color(rgb(TEXT))
+                .child(message),
+        )
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .rounded_lg()
+                .bg(rgb(TEXT))
+                .text_xs()
+                .text_color(rgb(BG))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|router, _, _, cx| router.refresh_notifications(cx)),
+                )
+                .child("Retry"),
+        )
+}
+
+fn error_state(message: &str, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+    let message = message.to_string();
+    div()
+        .flex_1()
+        .px_8()
+        .py_16()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_4()
+        .child(
+            div()
+                .size(px(64.))
+                .rounded_full()
+                .bg(rgb(SURFACE))
+                .border_1()
+                .border_color(rgb(YELLOW))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(rgb(YELLOW))
+                .child("!"),
+        )
+        .child(
+            div()
+                .text_base()
+                .text_color(rgb(TEXT))
+                .child("Couldn't load notifications"),
+        )
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(SUBTEXT))
+                .text_center()
+                .child(message),
+        )
+        .child(
+            div()
+                .h(px(44.))
+                .px_6()
+                .rounded_lg()
+                .bg(rgb(TEXT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_sm()
+                .text_color(rgb(BG))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|router, _, _, cx| router.refresh_notifications(cx)),
+                )
+                .child("Try again"),
         )
 }
 
@@ -372,7 +585,7 @@ fn notif_type_style(kind: &str) -> (u32, &'static str) {
         "Issue" => (GREEN, "#"),
         "Release" => (ACCENT, "R"),
         "CheckSuite" => (YELLOW, "CI"),
-        _ => (SUBTEXT, "·"),
+        _ => (SUBTEXT, "N"),
     }
 }
 
@@ -391,6 +604,6 @@ fn reason_label(reason: &str) -> &'static str {
 }
 
 fn format_date(iso: &str) -> String {
-    // Show "YYYY-MM-DD" from "YYYY-MM-DDTHH:MM:SSZ"
-    iso.get(0..10).unwrap_or(iso).to_string()
+    // Compact month/day form from "YYYY-MM-DDTHH:MM:SSZ".
+    iso.get(5..10).unwrap_or(iso).replace('-', "/")
 }
