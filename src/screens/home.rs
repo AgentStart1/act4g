@@ -319,75 +319,131 @@ fn inbox_list(
                 ),
         )
         // Notification items
-        .children(notifications.iter().map(|n| notif_item(n)))
+        .children(notifications.iter().map(|n| notif_item(n, cx)))
 }
 
-fn notif_item(notif: &Notification) -> impl gpui::IntoElement {
+fn notif_item(notif: &Notification, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
     let (type_color, type_label) = notif_type_style(&notif.subject.kind);
     let date = format_date(&notif.updated_at);
     let repo = notif.repository.full_name.clone();
     let title = notif.subject.title.clone();
     let reason = notif.reason.clone();
+    let notification = notif.clone();
 
     div()
+        .id(SharedString::from(format!("notification-{}", notif.id)))
+        .w_full()
+        .min_w_0()
         .flex()
-        .flex_row()
+        .flex_col()
         .gap_3()
-        .py_3()
-        .border_b_1()
-        .border_color(rgb(BORDER))
-        .items_start()
-        // Type badge
+        .mb_3()
+        .p_4()
+        .rounded_xl()
+        .overflow_hidden()
+        .bg(rgb(SURFACE))
+        .border_1()
+        .border_color(if notif.unread {
+            rgb(ACCENT)
+        } else {
+            rgb(BORDER)
+        })
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(move |router, _, _, cx| {
+                router.open_notification(notification.clone(), cx);
+            }),
+        )
+        // Repository, type, and date.
         .child(
             div()
-                .w(px(28.))
-                .h(px(20.))
-                .mt(px(2.))
-                .rounded(px(4.))
-                .bg(gpui::rgba(type_color * 256 + 0x26))
                 .flex()
+                .flex_row()
                 .items_center()
-                .justify_center()
+                .justify_between()
+                .gap_3()
                 .child(
                     div()
+                        .min_w_0()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .w(px(30.))
+                                .h(px(22.))
+                                .rounded(px(5.))
+                                .bg(gpui::rgba(type_color * 256 + 0x26))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_xs()
+                                .text_color(rgb(type_color))
+                                .child(type_label),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_xs()
+                                .text_color(rgb(SUBTEXT))
+                                .truncate()
+                                .child(repo),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_none()
                         .text_xs()
-                        .text_color(rgb(type_color))
-                        .child(type_label),
+                        .text_color(rgb(SUBTEXT))
+                        .child(date),
                 ),
         )
-        // Text content
+        // Two-line title that cannot force the row wider than the screen.
         .child(
             div()
-                .flex_1()
+                .min_w_0()
+                .text_base()
+                .text_color(rgb(TEXT))
+                .line_clamp(2)
+                .child(title),
+        )
+        // Reason and affordance.
+        .child(
+            div()
                 .flex()
-                .flex_col()
-                .gap_1()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_2()
                 .child(
                     div()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .justify_between()
                         .gap_2()
-                        .child(div().text_xs().text_color(rgb(SUBTEXT)).child(repo))
-                        .child(div().text_xs().text_color(rgb(SUBTEXT)).child(date)),
+                        .children(if notif.unread {
+                            vec![div()
+                                .size(px(7.))
+                                .rounded_full()
+                                .bg(rgb(ACCENT))
+                                .into_any_element()]
+                        } else {
+                            vec![]
+                        })
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(rgb(SUBTEXT))
+                                .child(reason_label(&reason)),
+                        ),
                 )
-                .child(div().text_sm().text_color(rgb(TEXT)).child(title))
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(SUBTEXT))
-                        .child(reason_label(&reason)),
+                        .text_color(rgb(ACCENT))
+                        .child("View details  →"),
                 ),
-        )
-        // Unread dot
-        .child(
-            div()
-                .size(px(8.))
-                .mt(px(6.))
-                .rounded_full()
-                .bg(rgb(ACCENT))
-                .opacity(if notif.unread { 1.0 } else { 0.0 }),
         )
 }
 

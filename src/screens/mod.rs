@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod detail;
 pub mod home;
 
 use gpui::{div, prelude::*};
@@ -8,13 +9,14 @@ use std::sync::{
     Arc,
 };
 
-use crate::api::{GitHubUser, Notification};
+use crate::api::{GitHubUser, Notification, NotificationDetail};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Screen {
     #[default]
     Auth,
     Home,
+    Detail,
 }
 
 pub enum AuthPhase {
@@ -40,6 +42,10 @@ pub struct Router {
     pub notifications_loading: bool,
     pub home_error: Option<String>,
     pub search_query: String,
+    pub selected_notification: Option<Notification>,
+    pub notification_detail: Option<NotificationDetail>,
+    pub notification_detail_loading: bool,
+    pub notification_detail_error: Option<String>,
 }
 
 impl Router {
@@ -59,6 +65,10 @@ impl Router {
             notifications_loading: false,
             home_error: None,
             search_query: String::new(),
+            selected_notification: None,
+            notification_detail: None,
+            notification_detail_loading: false,
+            notification_detail_error: None,
         };
 
         if let Some(token) = saved_token {
@@ -316,6 +326,85 @@ impl Router {
         }
     }
 
+    pub fn open_notification(&mut self, notification: Notification, cx: &mut gpui::Context<Self>) {
+        gpui_mobile::set_text_input_callback(None);
+        gpui_mobile::hide_keyboard();
+
+        self.selected_notification = Some(notification.clone());
+        self.notification_detail = None;
+        self.notification_detail_error = None;
+        self.notification_detail_loading = true;
+        self.navigate_to(Screen::Detail);
+        cx.notify();
+
+        let Some(token) = self.token.clone() else {
+            self.notification_detail_loading = false;
+            self.notification_detail_error = Some("GitHub session is unavailable.".to_string());
+            cx.notify();
+            return;
+        };
+        let Some(subject_url) = notification.subject.url.clone() else {
+            self.notification_detail_loading = false;
+            self.notification_detail_error =
+                Some("GitHub did not provide details for this notification.".to_string());
+            cx.notify();
+            return;
+        };
+
+        cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
+            let result = match crate::api::make_client() {
+                Ok(client) => {
+                    crate::api::get_notification_detail(&client, &token, &subject_url).await
+                }
+                Err(error) => Err(error),
+            };
+
+            entity
+                .update(cx, |router, cx| {
+                    router.notification_detail_loading = false;
+                    match result {
+                        Ok(detail) => router.notification_detail = Some(detail),
+                        Err(error) => {
+                            log::warn!("Failed to load notification detail: {error:#}");
+                            router.notification_detail_error = Some(
+                                "The notification opened, but its extra details could not be loaded."
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    pub fn close_notification(&mut self, cx: &mut gpui::Context<Self>) {
+        self.navigate_to(Screen::Home);
+        self.selected_notification = None;
+        self.notification_detail = None;
+        self.notification_detail_loading = false;
+        self.notification_detail_error = None;
+        cx.notify();
+    }
+
+    pub fn open_selected_notification_in_github(&self) {
+        let Some(notification) = self.selected_notification.as_ref() else {
+            return;
+        };
+        let url = self
+            .notification_detail
+            .as_ref()
+            .and_then(|detail| detail.html_url.clone())
+            .unwrap_or_else(|| crate::api::notification_web_url(notification));
+
+        match gpui_mobile::packages::url_launcher::launch_url(&url) {
+            Ok(true) => {}
+            Ok(false) => log::warn!("No app could open notification URL"),
+            Err(error) => log::warn!("Failed to open notification URL: {error}"),
+        }
+    }
+
     pub fn sign_out(&mut self, cx: &mut gpui::Context<Self>) {
         if let Err(error) = crate::credentials::clear_token() {
             log::warn!("Failed to remove saved GitHub session: {error}");
@@ -326,6 +415,10 @@ impl Router {
         self.notifications_loading = false;
         self.home_error = None;
         self.search_query.clear();
+        self.selected_notification = None;
+        self.notification_detail = None;
+        self.notification_detail_loading = false;
+        self.notification_detail_error = None;
         self.auth_phase = AuthPhase::Idle;
         self.navigate_to(Screen::Auth);
         gpui_mobile::set_text_input_callback(None);
@@ -376,6 +469,7 @@ impl gpui::Render for Router {
             .child(match self.current_screen {
                 Screen::Auth => auth::render(self, cx).into_any_element(),
                 Screen::Home => home::render(self, cx).into_any_element(),
+                Screen::Detail => detail::render(self, cx).into_any_element(),
             })
     }
 }

@@ -99,6 +99,7 @@ pub struct Notification {
 #[derive(Deserialize, Debug, Clone)]
 pub struct NotifRepo {
     pub full_name: String,
+    pub html_url: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -106,6 +107,19 @@ pub struct NotifSubject {
     pub title: String,
     #[serde(rename = "type")]
     pub kind: String,
+    pub url: Option<String>,
+    pub latest_comment_url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NotificationDetail {
+    pub html_url: Option<String>,
+    pub body: Option<String>,
+    pub state: Option<String>,
+    pub author: Option<String>,
+    pub comments: Option<u64>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 pub fn make_client() -> anyhow::Result<reqwest::Client> {
@@ -227,6 +241,72 @@ pub async fn get_notifications(
             .map_err(|e| anyhow::anyhow!("parse notifications: {e}\nbody: {text}"))
     })
     .await
+}
+
+pub async fn get_notification_detail(
+    client: &reqwest::Client,
+    token: &str,
+    subject_url: &str,
+) -> anyhow::Result<NotificationDetail> {
+    if !subject_url.starts_with("https://api.github.com/") {
+        anyhow::bail!("GitHub returned an unsupported notification URL");
+    }
+
+    let client = client.clone();
+    let token = token.to_owned();
+    let subject_url = subject_url.to_owned();
+
+    run_http(async move {
+        let text = client
+            .get(subject_url)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("User-Agent", "act4g/0.1")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| anyhow::anyhow!("parse notification detail: {error}"))?;
+
+        let string = |key: &str| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+
+        Ok(NotificationDetail {
+            html_url: string("html_url"),
+            body: string("body").filter(|body| !body.trim().is_empty()),
+            state: string("state").or_else(|| string("status")),
+            author: value
+                .pointer("/user/login")
+                .or_else(|| value.pointer("/author/login"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            comments: value.get("comments").and_then(serde_json::Value::as_u64),
+            created_at: string("created_at"),
+            updated_at: string("updated_at"),
+        })
+    })
+    .await
+}
+
+pub fn notification_web_url(notification: &Notification) -> String {
+    let Some(api_url) = notification.subject.url.as_deref() else {
+        return notification.repository.html_url.clone();
+    };
+
+    let Some(path) = api_url.strip_prefix("https://api.github.com/repos/") else {
+        return notification.repository.html_url.clone();
+    };
+
+    let path = path.replace("/pulls/", "/pull/");
+    format!("https://github.com/{path}")
 }
 
 pub fn is_unauthorized(error: &anyhow::Error) -> bool {
