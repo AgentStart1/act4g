@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -19,27 +22,29 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: aarch64-linux-android
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: '17'
           distribution: temurin
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
       - name: Install Android NDK r25c
         run: |
@@ -47,39 +52,9 @@ jobs:
           echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           gradle-version: "9.4.1"
-
-      - name: Clone gpui-mobile (Java sources + assets)
-        run: git clone --depth=1 https://github.com/itsbalamurali/gpui-mobile /tmp/gpui-mobile
-
-      - name: Copy gpui-mobile Java sources
-        run: |
-          cp -r /tmp/gpui-mobile/example/android/gradle/app/src/main/java \
-                android/gradle/app/src/main/
-
-      - name: Copy launcher icons
-        run: |
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            mkdir -p android/gradle/app/src/main/res/mipmap-$density
-            cp /tmp/gpui-mobile/example/android/gradle/app/src/main/res/mipmap-$density/ic_launcher.png \
-               android/gradle/app/src/main/res/mipmap-$density/
-            cp /tmp/gpui-mobile/example/android/gradle/app/src/main/res/mipmap-$density/ic_launcher_round.png \
-               android/gradle/app/src/main/res/mipmap-$density/
-          done
-
-      - name: Copy drawable resources
-        run: |
-          mkdir -p android/gradle/app/src/main/res/drawable
-          cp /tmp/gpui-mobile/example/android/gradle/app/src/main/res/drawable/* \
-             android/gradle/app/src/main/res/drawable/ 2>/dev/null || true
-
-      - name: Copy NotoColorEmoji font
-        run: |
-          mkdir -p android/gradle/app/src/main/assets/fonts
-          cp /tmp/gpui-mobile/example/android/gradle/app/src/main/assets/fonts/NotoColorEmoji.ttf \
-             android/gradle/app/src/main/assets/fonts/
 
       - name: Build Rust library
         env:
@@ -97,7 +72,7 @@ jobs:
         run: gradle assembleRelease --no-daemon
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: act4g-release
           path: android/gradle/app/build/outputs/apk/release/app-release-unsigned.apk
