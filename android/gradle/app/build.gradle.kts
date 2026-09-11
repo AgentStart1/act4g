@@ -15,11 +15,11 @@ val signingReady = listOf(
 ).all { !it.isNullOrBlank() }
 
 android {
-    namespace = "dev.gpui.act4g"
+    namespace = "com.storytellerf.act4g"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "dev.gpui.act4g"
+        applicationId = "com.storytellerf.act4g"
         minSdk = 26
         targetSdk = 34
         versionCode = providers.environmentVariable("ACT4G_VERSION_CODE").orNull?.toInt() ?: 1
