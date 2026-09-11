@@ -46,6 +46,8 @@ pub struct Router {
     pub notification_detail: Option<NotificationDetail>,
     pub notification_detail_loading: bool,
     pub notification_detail_error: Option<String>,
+    pub home_request_id: u64,
+    pub detail_request_id: u64,
 }
 
 impl Router {
@@ -69,6 +71,8 @@ impl Router {
             notification_detail: None,
             notification_detail_loading: false,
             notification_detail_error: None,
+            home_request_id: 0,
+            detail_request_id: 0,
         };
 
         if let Some(token) = saved_token {
@@ -227,6 +231,8 @@ impl Router {
     }
 
     pub fn load_home_data(&mut self, cx: &mut gpui::Context<Self>, token: String) {
+        self.home_request_id = self.home_request_id.wrapping_add(1);
+        let request_id = self.home_request_id;
         self.notifications_loading = true;
         self.home_error = None;
         cx.notify();
@@ -263,6 +269,12 @@ impl Router {
 
             entity
                 .update(cx, |router, cx| {
+                    if router.home_request_id != request_id
+                        || router.token.as_deref() != Some(token.as_str())
+                    {
+                        return;
+                    }
+
                     if session_expired {
                         if let Err(error) = crate::credentials::clear_token() {
                             log::warn!("Failed to remove expired GitHub session: {error}");
@@ -334,6 +346,8 @@ impl Router {
         self.notification_detail = None;
         self.notification_detail_error = None;
         self.notification_detail_loading = true;
+        self.detail_request_id = self.detail_request_id.wrapping_add(1);
+        let request_id = self.detail_request_id;
         self.navigate_to(Screen::Detail);
         cx.notify();
 
@@ -343,7 +357,9 @@ impl Router {
             cx.notify();
             return;
         };
-        let Some(subject_url) = notification.subject.url.clone() else {
+        let Some(detail_url) =
+            crate::api::notification_detail_url(&notification).map(str::to_owned)
+        else {
             self.notification_detail_loading = false;
             self.notification_detail_error =
                 Some("GitHub did not provide details for this notification.".to_string());
@@ -354,13 +370,17 @@ impl Router {
         cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
             let result = match crate::api::make_client() {
                 Ok(client) => {
-                    crate::api::get_notification_detail(&client, &token, &subject_url).await
+                    crate::api::get_notification_detail(&client, &token, &detail_url).await
                 }
                 Err(error) => Err(error),
             };
 
             entity
                 .update(cx, |router, cx| {
+                    if router.detail_request_id != request_id {
+                        return;
+                    }
+
                     router.notification_detail_loading = false;
                     match result {
                         Ok(detail) => router.notification_detail = Some(detail),
@@ -380,6 +400,7 @@ impl Router {
     }
 
     pub fn close_notification(&mut self, cx: &mut gpui::Context<Self>) {
+        self.detail_request_id = self.detail_request_id.wrapping_add(1);
         self.navigate_to(Screen::Home);
         self.selected_notification = None;
         self.notification_detail = None;
@@ -406,6 +427,8 @@ impl Router {
     }
 
     pub fn sign_out(&mut self, cx: &mut gpui::Context<Self>) {
+        self.home_request_id = self.home_request_id.wrapping_add(1);
+        self.detail_request_id = self.detail_request_id.wrapping_add(1);
         if let Err(error) = crate::credentials::clear_token() {
             log::warn!("Failed to remove saved GitHub session: {error}");
         }

@@ -1,7 +1,10 @@
 use serde::Deserialize;
 use std::future::Future;
 
-pub const CLIENT_ID: &str = env!("CLIENT_ID");
+pub const CLIENT_ID: &str = match option_env!("CLIENT_ID") {
+    Some(client_id) => client_id,
+    None => "",
+};
 
 const DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
@@ -146,6 +149,10 @@ where
 }
 
 pub async fn request_device_code(client: &reqwest::Client) -> anyhow::Result<DeviceCodeResponse> {
+    if CLIENT_ID.is_empty() {
+        anyhow::bail!("GitHub OAuth client ID is not configured");
+    }
+
     let client = client.clone();
 
     run_http(async move {
@@ -225,20 +232,38 @@ pub async fn get_notifications(
     let token = token.to_owned();
 
     run_http(async move {
-        let text = client
-            .get(format!("{API_BASE}/notifications"))
-            .header("Authorization", format!("Bearer {token}"))
-            .header("User-Agent", "act4g/0.1")
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
-            .await?
-            .error_for_status()?
-            .text()
-            .await?;
+        let mut notifications = Vec::new();
+        let mut page = 1_u32;
 
-        serde_json::from_str(&text)
-            .map_err(|e| anyhow::anyhow!("parse notifications: {e}\nbody: {text}"))
+        loop {
+            let response = client
+                .get(format!("{API_BASE}/notifications"))
+                .query(&[("per_page", "50"), ("page", &page.to_string())])
+                .header("Authorization", format!("Bearer {token}"))
+                .header("User-Agent", "act4g/0.1")
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .send()
+                .await?
+                .error_for_status()?;
+
+            let has_next_page = response
+                .headers()
+                .get(reqwest::header::LINK)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(link_has_next_page);
+            let text = response.text().await?;
+            let mut page_notifications: Vec<Notification> = serde_json::from_str(&text)
+                .map_err(|e| anyhow::anyhow!("parse notifications: {e}\nbody: {text}"))?;
+            notifications.append(&mut page_notifications);
+
+            if !has_next_page {
+                break;
+            }
+            page += 1;
+        }
+
+        Ok(notifications)
     })
     .await
 }
@@ -258,7 +283,7 @@ pub async fn get_notification_detail(
 
     run_http(async move {
         let text = client
-            .get(subject_url)
+            .get(&subject_url)
             .header("Authorization", format!("Bearer {token}"))
             .header("User-Agent", "act4g/0.1")
             .header("Accept", "application/vnd.github+json")
@@ -279,8 +304,15 @@ pub async fn get_notification_detail(
                 .map(str::to_owned)
         };
 
+        let html_url = string("html_url").or_else(|| {
+            value
+                .get("head_sha")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|head_sha| check_suite_web_url(&subject_url, head_sha))
+        });
+
         Ok(NotificationDetail {
-            html_url: string("html_url"),
+            html_url,
             body: string("body").filter(|body| !body.trim().is_empty()),
             state: string("state").or_else(|| string("status")),
             author: value
@@ -305,8 +337,33 @@ pub fn notification_web_url(notification: &Notification) -> String {
         return notification.repository.html_url.clone();
     };
 
-    let path = path.replace("/pulls/", "/pull/");
+    let path = match notification.subject.kind.as_str() {
+        "PullRequest" => path.replace("/pulls/", "/pull/"),
+        "Commit" => path.replace("/commits/", "/commit/"),
+        "Issue" | "Discussion" => path.to_owned(),
+        _ => return notification.repository.html_url.clone(),
+    };
     format!("https://github.com/{path}")
+}
+
+pub fn notification_detail_url(notification: &Notification) -> Option<&str> {
+    notification
+        .subject
+        .latest_comment_url
+        .as_deref()
+        .or(notification.subject.url.as_deref())
+}
+
+fn link_has_next_page(link: &str) -> bool {
+    link.split(',').any(|part| part.contains("rel=\"next\""))
+}
+
+fn check_suite_web_url(api_url: &str, head_sha: &str) -> Option<String> {
+    let path = api_url.strip_prefix("https://api.github.com/repos/")?;
+    let repository = path.split_once("/check-suites/")?.0;
+    Some(format!(
+        "https://github.com/{repository}/commit/{head_sha}/checks"
+    ))
 }
 
 pub fn is_unauthorized(error: &anyhow::Error) -> bool {
@@ -314,4 +371,82 @@ pub fn is_unauthorized(error: &anyhow::Error) -> bool {
         .downcast_ref::<reqwest::Error>()
         .and_then(reqwest::Error::status)
         == Some(reqwest::StatusCode::UNAUTHORIZED)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notification(kind: &str, url: &str, latest_comment_url: Option<&str>) -> Notification {
+        Notification {
+            id: "1".to_string(),
+            repository: NotifRepo {
+                full_name: "octocat/hello-world".to_string(),
+                html_url: "https://github.com/octocat/hello-world".to_string(),
+            },
+            subject: NotifSubject {
+                title: "Hello".to_string(),
+                kind: kind.to_string(),
+                url: Some(url.to_string()),
+                latest_comment_url: latest_comment_url.map(str::to_owned),
+            },
+            reason: "comment".to_string(),
+            updated_at: "2026-09-02T00:00:00Z".to_string(),
+            unread: true,
+        }
+    }
+
+    #[test]
+    fn detects_next_page_in_link_header() {
+        assert!(link_has_next_page(
+            "<https://api.github.com/notifications?page=2>; rel=\"next\", <https://api.github.com/notifications?page=4>; rel=\"last\""
+        ));
+        assert!(!link_has_next_page(
+            "<https://api.github.com/notifications?page=1>; rel=\"prev\""
+        ));
+    }
+
+    #[test]
+    fn prefers_latest_comment_for_notification_detail() {
+        let notification = notification(
+            "PullRequest",
+            "https://api.github.com/repos/octocat/hello-world/pulls/7",
+            Some("https://api.github.com/repos/octocat/hello-world/issues/comments/9"),
+        );
+
+        assert_eq!(
+            notification_detail_url(&notification),
+            Some("https://api.github.com/repos/octocat/hello-world/issues/comments/9")
+        );
+    }
+
+    #[test]
+    fn converts_supported_subject_urls_to_web_urls() {
+        let pull_request = notification(
+            "PullRequest",
+            "https://api.github.com/repos/octocat/hello-world/pulls/7",
+            None,
+        );
+        let check_suite = notification(
+            "CheckSuite",
+            "https://api.github.com/repos/octocat/hello-world/check-suites/5",
+            None,
+        );
+
+        assert_eq!(
+            notification_web_url(&pull_request),
+            "https://github.com/octocat/hello-world/pull/7"
+        );
+        assert_eq!(
+            notification_web_url(&check_suite),
+            "https://github.com/octocat/hello-world"
+        );
+        assert_eq!(
+            check_suite_web_url(
+                "https://api.github.com/repos/octocat/hello-world/check-suites/5",
+                "abc123"
+            ),
+            Some("https://github.com/octocat/hello-world/commit/abc123/checks".to_string())
+        );
+    }
 }

@@ -1,6 +1,18 @@
 plugins {
     id("com.android.application")
+    id("com.starter.easylauncher") version "6.4.1"
 }
+
+val keystoreFile = providers.environmentVariable("ACT4G_KEYSTORE_FILE").orNull
+val keystorePassword = providers.environmentVariable("ACT4G_KEYSTORE_PASSWORD").orNull
+val keyAliasValue = providers.environmentVariable("ACT4G_KEY_ALIAS").orNull
+val keyPasswordValue = providers.environmentVariable("ACT4G_KEY_PASSWORD").orNull
+val signingReady = listOf(
+    keystoreFile,
+    keystorePassword,
+    keyAliasValue,
+    keyPasswordValue,
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "dev.gpui.act4g"
@@ -10,8 +22,8 @@ android {
         applicationId = "dev.gpui.act4g"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = providers.environmentVariable("ACT4G_VERSION_CODE").orNull?.toInt() ?: 1
+        versionName = providers.environmentVariable("ACT4G_VERSION_NAME").orNull ?: "0.1.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -20,23 +32,41 @@ android {
         manifestPlaceholders["nativeLibraryName"] = "act4g"
     }
 
+    signingConfigs {
+        if (signingReady) {
+            create("sharedRelease") {
+                storeFile = file(keystoreFile!!)
+                storePassword = keystorePassword
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
-        release {
+        val release = getByName("release") {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (signingReady) {
+                signingConfig = signingConfigs.getByName("sharedRelease")
+            }
         }
-        debug {
+        create("alpha") {
+            initWith(release)
+            matchingFallbacks += "release"
+        }
+        getByName("debug") {
             isDebuggable = true
             isJniDebuggable = true
         }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     sourceSets {
@@ -55,6 +85,26 @@ android {
     lint {
         abortOnError = false
         checkReleaseBuilds = false
+    }
+}
+
+easylauncher {
+    buildTypes {
+        register("debug") {
+            enable(false)
+        }
+        register("alpha") {
+            filters(
+                chromeLike(
+                    label = "ALPHA",
+                    ribbonColor = "#D29922",
+                    labelColor = "#FFFFFF",
+                )
+            )
+        }
+        register("release") {
+            enable(false)
+        }
     }
 }
 

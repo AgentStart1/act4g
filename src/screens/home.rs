@@ -16,7 +16,7 @@ const YELLOW: u32 = 0xF0883E;
 
 // Search field text, accumulated from keyboard callbacks each frame.
 thread_local! {
-    static PENDING_TEXT: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static PENDING_TEXT: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Install the soft keyboard callback that routes typed characters here.
