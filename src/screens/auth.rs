@@ -240,11 +240,7 @@ fn waiting_view(
                 .on_mouse_down(
                     gpui::MouseButton::Left,
                     cx.listener(|router, _, _, cx| {
-                        if let Some(cancel) = router.polling_cancel.take() {
-                            cancel.store(true, std::sync::atomic::Ordering::Release);
-                        }
-                        router.auth_phase = AuthPhase::Idle;
-                        cx.notify();
+                        router.cancel_device_flow(cx);
                     }),
                 )
                 .child(div().text_sm().text_color(rgb(SUBTEXT)).child("Cancel")),

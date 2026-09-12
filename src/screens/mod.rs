@@ -46,6 +46,7 @@ pub struct Router {
     pub notification_detail: Option<NotificationDetail>,
     pub notification_detail_loading: bool,
     pub notification_detail_error: Option<String>,
+    pub auth_request_id: u64,
     pub home_request_id: u64,
     pub detail_request_id: u64,
 }
@@ -71,6 +72,7 @@ impl Router {
             notification_detail: None,
             notification_detail_loading: false,
             notification_detail_error: None,
+            auth_request_id: 0,
             home_request_id: 0,
             detail_request_id: 0,
         };
@@ -90,6 +92,8 @@ impl Router {
         if let Some(cancel) = self.polling_cancel.take() {
             cancel.store(true, Ordering::Release);
         }
+        self.auth_request_id = self.auth_request_id.wrapping_add(1);
+        let request_id = self.auth_request_id;
         self.auth_phase = AuthPhase::RequestingCode;
         cx.notify();
 
@@ -102,7 +106,13 @@ impl Router {
                 Err(e) => {
                     entity
                         .update(cx, |router, cx| {
+                            if router.auth_request_id != request_id
+                                || cancel.load(Ordering::Acquire)
+                            {
+                                return;
+                            }
                             router.auth_phase = AuthPhase::Error(format!("Client error: {e}"));
+                            router.polling_cancel = None;
                             cx.notify();
                         })
                         .ok();
@@ -115,8 +125,14 @@ impl Router {
                 Err(e) => {
                     entity
                         .update(cx, |router, cx| {
+                            if router.auth_request_id != request_id
+                                || cancel.load(Ordering::Acquire)
+                            {
+                                return;
+                            }
                             router.auth_phase =
                                 AuthPhase::Error(format!("Failed to start auth: {e}"));
+                            router.polling_cancel = None;
                             cx.notify();
                         })
                         .ok();
@@ -129,8 +145,11 @@ impl Router {
             let expires_at =
                 std::time::Instant::now() + std::time::Duration::from_secs(code_resp.expires_in);
 
-            entity
+            let flow_active = entity
                 .update(cx, |router, cx| {
+                    if router.auth_request_id != request_id || cancel.load(Ordering::Acquire) {
+                        return false;
+                    }
                     router.auth_phase = AuthPhase::WaitingForUser {
                         user_code: code_resp.user_code.clone(),
                         verification_uri: code_resp.verification_uri.clone(),
@@ -138,8 +157,13 @@ impl Router {
                         interval,
                     };
                     cx.notify();
+                    true
                 })
-                .ok();
+                .unwrap_or(false);
+
+            if !flow_active {
+                return;
+            }
 
             let authorization_url =
                 device_authorization_url(&code_resp.verification_uri, &code_resp.user_code);
@@ -159,6 +183,11 @@ impl Router {
                 if std::time::Instant::now() >= expires_at {
                     entity
                         .update(cx, |router, cx| {
+                            if router.auth_request_id != request_id
+                                || cancel.load(Ordering::Acquire)
+                            {
+                                return;
+                            }
                             router.auth_phase = AuthPhase::Error(
                                 "The device code expired. Start sign in again to get a new code."
                                     .to_string(),
@@ -178,6 +207,10 @@ impl Router {
 
                 let poll_result = crate::api::poll_token(&client, &device_code).await;
 
+                if cancel.load(Ordering::Acquire) {
+                    break;
+                }
+
                 if let Err(error) = &poll_result {
                     log::warn!(
                         "Token poll failed; retrying while the device code is valid: {error:#}"
@@ -193,32 +226,38 @@ impl Router {
                 }
 
                 let should_break = entity
-                    .update(cx, |router, cx| match poll_result {
-                        Ok(crate::api::TokenResponse {
-                            access_token: Some(new_token),
-                            ..
-                        }) => {
-                            let t = new_token.clone();
-                            if let Err(error) = crate::credentials::save_token(&new_token) {
-                                log::warn!("Failed to persist GitHub session: {error}");
+                    .update(cx, |router, cx| {
+                        if router.auth_request_id != request_id || cancel.load(Ordering::Acquire) {
+                            return true;
+                        }
+
+                        match poll_result {
+                            Ok(crate::api::TokenResponse {
+                                access_token: Some(new_token),
+                                ..
+                            }) => {
+                                let t = new_token.clone();
+                                if let Err(error) = crate::credentials::save_token(&new_token) {
+                                    log::warn!("Failed to persist GitHub session: {error}");
+                                }
+                                router.token = Some(new_token);
+                                router.polling_cancel = None;
+                                router.navigate_to(Screen::Home);
+                                cx.notify();
+                                router.load_home_data(cx, t);
+                                true
                             }
-                            router.token = Some(new_token);
-                            router.polling_cancel = None;
-                            router.navigate_to(Screen::Home);
-                            cx.notify();
-                            router.load_home_data(cx, t);
-                            true
+                            Ok(crate::api::TokenResponse {
+                                error: Some(ref e), ..
+                            }) if e == "authorization_pending" || e == "slow_down" => false,
+                            Ok(crate::api::TokenResponse { error: Some(e), .. }) => {
+                                router.auth_phase = AuthPhase::Error(format!("Auth denied: {e}"));
+                                cx.notify();
+                                true
+                            }
+                            Ok(_) => false,
+                            Err(_) => false,
                         }
-                        Ok(crate::api::TokenResponse {
-                            error: Some(ref e), ..
-                        }) if e == "authorization_pending" || e == "slow_down" => false,
-                        Ok(crate::api::TokenResponse { error: Some(e), .. }) => {
-                            router.auth_phase = AuthPhase::Error(format!("Auth denied: {e}"));
-                            cx.notify();
-                            true
-                        }
-                        Ok(_) => false,
-                        Err(_) => false,
                     })
                     .unwrap_or(true);
 
@@ -228,6 +267,15 @@ impl Router {
             }
         })
         .detach();
+    }
+
+    pub fn cancel_device_flow(&mut self, cx: &mut gpui::Context<Self>) {
+        self.auth_request_id = self.auth_request_id.wrapping_add(1);
+        if let Some(cancel) = self.polling_cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
+        self.auth_phase = AuthPhase::Idle;
+        cx.notify();
     }
 
     pub fn load_home_data(&mut self, cx: &mut gpui::Context<Self>, token: String) {
@@ -427,6 +475,10 @@ impl Router {
     }
 
     pub fn sign_out(&mut self, cx: &mut gpui::Context<Self>) {
+        self.auth_request_id = self.auth_request_id.wrapping_add(1);
+        if let Some(cancel) = self.polling_cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
         self.home_request_id = self.home_request_id.wrapping_add(1);
         self.detail_request_id = self.detail_request_id.wrapping_add(1);
         if let Err(error) = crate::credentials::clear_token() {
