@@ -12,17 +12,19 @@ const RED: u32 = 0xF85149;
 const CODE_BG: u32 = 0x21262D;
 
 pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
-    let (safe_top, safe_bottom, _, _) = safe_area_insets();
+    let (safe_top, safe_bottom, safe_left, safe_right) = safe_area_insets();
 
     div()
+        .id("authorization-scroll")
         .flex()
         .flex_col()
         .size_full()
         .items_center()
-        .justify_center()
-        .pt(px(safe_top))
-        .pb(px(safe_bottom))
-        .px_8()
+        .overflow_y_scroll()
+        .pt(px(safe_top + 32.))
+        .pb(px(safe_bottom + 32.))
+        .pl(px(safe_left + 32.))
+        .pr(px(safe_right + 32.))
         .gap_8()
         // Logo + app title
         .child(

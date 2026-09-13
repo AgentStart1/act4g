@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("com.starter.easylauncher") version "6.4.1"
+    id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
 val keystoreFile = providers.environmentVariable("ACT4G_KEYSTORE_FILE").orNull
@@ -105,6 +106,27 @@ easylauncher {
         register("release") {
             enable(false)
         }
+    }
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(rootProject.files("config/detekt/detekt.yml"))
+}
+
+tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
+    setSource(
+        rootProject.fileTree(rootProject.projectDir) {
+            include("**/*.kt", "**/*.kts")
+            exclude("**/.gradle/**", "**/build/**")
+        }
+    )
+    reports {
+        html.required.set(true)
+        sarif.required.set(true)
+        xml.required.set(true)
+        txt.required.set(false)
+        md.required.set(false)
     }
 }
 

@@ -61,6 +61,9 @@ jobs:
         with:
           gradle-version: "9.4.1"
 
+      - name: Analyze Kotlin code
+        run: gradle --project-dir android/gradle detekt --no-daemon
+
       - name: Build Android debug variant without OAuth configuration
         run: |
           cargo ndk \

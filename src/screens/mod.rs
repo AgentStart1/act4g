@@ -461,11 +461,15 @@ impl Router {
         let Some(notification) = self.selected_notification.as_ref() else {
             return;
         };
-        let url = self
+        let detail_url = self
             .notification_detail
             .as_ref()
-            .and_then(|detail| detail.html_url.clone())
-            .unwrap_or_else(|| crate::api::notification_web_url(notification));
+            .and_then(|detail| detail.html_url.clone());
+        let url = match (detail_url, notification.subject.kind.as_str()) {
+            (Some(url), _) => url,
+            (None, "Release" | "CheckSuite") => return,
+            (None, _) => crate::api::notification_web_url(notification),
+        };
 
         match gpui_mobile::packages::url_launcher::launch_url(&url) {
             Ok(true) => {}

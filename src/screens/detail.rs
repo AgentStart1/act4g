@@ -20,7 +20,14 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
     let detail = router.notification_detail.clone();
     let loading = router.notification_detail_loading;
     let error = router.notification_detail_error.clone();
-    let (safe_top, safe_bottom, _, _) = safe_area_insets();
+    let open_requires_detail =
+        matches!(notification.subject.kind.as_str(), "Release" | "CheckSuite");
+    let can_open = detail
+        .as_ref()
+        .and_then(|detail| detail.html_url.as_ref())
+        .is_some()
+        || !open_requires_detail;
+    let (safe_top, safe_bottom, safe_left, safe_right) = safe_area_insets();
     let (type_color, type_label) = type_style(&notification.subject.kind);
 
     div()
@@ -28,6 +35,8 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
         .bg(rgb(BG))
         .pt(px(safe_top))
         .pb(px(safe_bottom))
+        .pl(px(safe_left))
+        .pr(px(safe_right))
         .flex()
         .flex_col()
         .child(
@@ -209,19 +218,27 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                         .min_h(px(48.))
                         .w_full()
                         .rounded_xl()
-                        .bg(rgb(ACCENT))
+                        .bg(rgb(if can_open { ACCENT } else { BORDER }))
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_sm()
-                        .text_color(rgb(BG))
-                        .on_mouse_down(
-                            gpui::MouseButton::Left,
-                            cx.listener(|router, _, _, _cx| {
-                                router.open_selected_notification_in_github();
-                            }),
-                        )
-                        .child("Open on GitHub"),
+                        .text_color(rgb(if can_open { BG } else { SUBTEXT }))
+                        .when(can_open, |button| {
+                            button.on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|router, _, _, _cx| {
+                                    router.open_selected_notification_in_github();
+                                }),
+                            )
+                        })
+                        .child(if loading && open_requires_detail {
+                            "Resolving GitHub link…"
+                        } else if !can_open {
+                            "GitHub link unavailable"
+                        } else {
+                            "Open on GitHub"
+                        }),
                 ),
         )
         .into_any_element()

@@ -43,7 +43,7 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> impl gpui:
         }
     });
 
-    let (safe_top, safe_bottom, _, _) = safe_area_insets();
+    let (safe_top, safe_bottom, safe_left, safe_right) = safe_area_insets();
     let search_focused = !router.search_query.is_empty()
         || gpui_mobile::TEXT_INPUT_DIRTY.load(std::sync::atomic::Ordering::Acquire);
 
@@ -57,6 +57,8 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> impl gpui:
         .size_full()
         .pt(px(safe_top))
         .pb(px(safe_bottom))
+        .pl(px(safe_left))
+        .pr(px(safe_right))
         // ── Top bar ──────────────────────────────────────────────────────
         .child(top_bar(router, search_focused, cx))
         // ── Inbox list ───────────────────────────────────────────────────
