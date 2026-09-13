@@ -39,6 +39,9 @@ The Android package name is `com.storytellerf.act4g`.
 
 act4g never asks you to enter your GitHub password inside the app. Your session
 credential is stored in Android's secure storage and removed when you sign out.
+To show notification details from private repositories, act4g requests GitHub's
+`repo` OAuth scope. GitHub currently does not offer a read-only OAuth scope for
+private repository content.
 
 ## Using the app
 

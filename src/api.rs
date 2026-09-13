@@ -161,7 +161,7 @@ pub async fn request_device_code(client: &reqwest::Client) -> anyhow::Result<Dev
             .header("Accept", "application/json")
             .form(&[
                 ("client_id", CLIENT_ID),
-                ("scope", "notifications read:user"),
+                ("scope", "notifications read:user repo"),
             ])
             .send()
             .await?
@@ -238,7 +238,11 @@ pub async fn get_notifications(
         loop {
             let response = client
                 .get(format!("{API_BASE}/notifications"))
-                .query(&[("per_page", "50"), ("page", &page.to_string())])
+                .query(&[
+                    ("all", "true"),
+                    ("per_page", "50"),
+                    ("page", &page.to_string()),
+                ])
                 .header("Authorization", format!("Bearer {token}"))
                 .header("User-Agent", "act4g/0.1")
                 .header("Accept", "application/vnd.github+json")
@@ -264,6 +268,32 @@ pub async fn get_notifications(
         }
 
         Ok(notifications)
+    })
+    .await
+}
+
+pub async fn mark_notification_as_read(
+    client: &reqwest::Client,
+    token: &str,
+    notification_id: &str,
+) -> anyhow::Result<()> {
+    let client = client.clone();
+    let token = token.to_owned();
+    let notification_id = notification_id.to_owned();
+
+    run_http(async move {
+        client
+            .patch(format!(
+                "{API_BASE}/notifications/threads/{notification_id}"
+            ))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("User-Agent", "act4g/0.1")
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
     })
     .await
 }

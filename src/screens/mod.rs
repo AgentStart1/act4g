@@ -390,6 +390,15 @@ impl Router {
         gpui_mobile::set_text_input_callback(None);
         gpui_mobile::hide_keyboard();
 
+        let mut notification = notification;
+        notification.unread = false;
+        if let Some(item) = self
+            .notifications
+            .iter_mut()
+            .find(|item| item.id == notification.id)
+        {
+            item.unread = false;
+        }
         self.selected_notification = Some(notification.clone());
         self.notification_detail = None;
         self.notification_detail_error = None;
@@ -405,6 +414,23 @@ impl Router {
             cx.notify();
             return;
         };
+
+        let notification_id = notification.id.clone();
+        let read_token = token.clone();
+        cx.spawn(async move |_entity: gpui::WeakEntity<Self>, _cx| {
+            let result = match crate::api::make_client() {
+                Ok(client) => {
+                    crate::api::mark_notification_as_read(&client, &read_token, &notification_id)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
+                log::warn!("Failed to mark notification as read: {error:#}");
+            }
+        })
+        .detach();
+
         let Some(detail_url) =
             crate::api::notification_detail_url(&notification).map(str::to_owned)
         else {
