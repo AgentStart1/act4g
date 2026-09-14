@@ -1,0 +1,155 @@
+name: Publish Android
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_FONTCONFIG_DLOPEN: "on"
+
+jobs:
+  publish:
+    name: Build signed Android package
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select package type
+        id: package
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            {
+              echo "build_type=Release"
+              echo "artifact_name=act4g-${GITHUB_REF_NAME}"
+              echo "version_name=${GITHUB_REF_NAME#v}"
+              echo "source_apk=android/gradle/app/build/outputs/apk/release/app-release.apk"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "build_type=Alpha"
+              echo "artifact_name=act4g-alpha-${GITHUB_SHA::7}"
+              echo "version_name=0.1.0-alpha.${GITHUB_RUN_NUMBER}"
+              echo "source_apk=android/gradle/app/build/outputs/apk/alpha/app-alpha.apk"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate publishing credentials
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          for name in \
+            CLIENT_ID \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required GitHub Actions secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Install Android NDK r25c
+        run: |
+          sdkmanager --install "ndk;25.2.9519653"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          gradle-version: "9.4.1"
+
+      - name: Restore signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/act4g.jks"
+
+      - name: Build Rust library
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+        run: |
+          cargo ndk \
+            -t arm64-v8a \
+            -P 26 \
+            --manifest-path Cargo.toml \
+            -o android/gradle/app/src/main/jniLibs \
+            build --locked --release
+
+      - name: Build signed APK
+        env:
+          ACT4G_KEYSTORE_FILE: ${{ runner.temp }}/act4g.jks
+          ACT4G_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ACT4G_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ACT4G_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ACT4G_VERSION_CODE: ${{ github.run_number }}
+          ACT4G_VERSION_NAME: ${{ steps.package.outputs.version_name }}
+        run: gradle --project-dir android/gradle "assemble${{ steps.package.outputs.build_type }}" --no-daemon
+
+      - name: Verify and stage APK
+        env:
+          SOURCE_APK: ${{ steps.package.outputs.source_apk }}
+          ARTIFACT_NAME: ${{ steps.package.outputs.artifact_name }}
+        shell: bash
+        run: |
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
+          if [[ -z "$APKSIGNER" ]]; then
+            echo "Android apksigner was not found" >&2
+            exit 1
+          fi
+          "$APKSIGNER" verify --verbose --print-certs "$SOURCE_APK"
+          mkdir -p dist
+          cp "$SOURCE_APK" "dist/${ARTIFACT_NAME}.apk"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: dist/${{ steps.package.outputs.artifact_name }}.apk
+          retention-days: 30
+
+      - name: Publish tagged release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ steps.package.outputs.artifact_name }}
+        shell: bash
+        run: gh release create "$GITHUB_REF_NAME" "dist/${ARTIFACT_NAME}.apk" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
