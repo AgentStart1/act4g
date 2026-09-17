@@ -48,11 +48,6 @@ jobs:
           java-version: "17"
           distribution: temurin
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-        with:
-          packages: platform-tools
-
       - name: Install Android NDK r25c
         run: |
           sdkmanager --install "ndk;25.2.9519653"
