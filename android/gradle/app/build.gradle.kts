@@ -17,7 +17,7 @@ val signingReady = listOf(
 
 android {
     namespace = "com.storytellerf.act4g"
-    compileSdk = 34
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.storytellerf.act4g"
