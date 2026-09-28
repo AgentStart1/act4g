@@ -131,7 +131,7 @@ tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
 }
 
 dependencies {
-    implementation("androidx.core:core:1.19.0")
+    implementation("androidx.core:core:1.19.1")
     implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.media:media:1.8.0")
