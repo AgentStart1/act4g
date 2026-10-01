@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "act4g"
+rootProject.name = "gact"
 include(":app")

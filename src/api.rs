@@ -64,7 +64,7 @@ fn proxy_url() -> Option<String> {
         Err(error) => log::warn!("Failed to read Android system proxy: {error:#}"),
     }
 
-    option_env!("ACT4G_HTTP_PROXY").map(str::to_owned)
+    option_env!("GACT_HTTP_PROXY").map(str::to_owned)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -210,7 +210,7 @@ pub async fn get_user(client: &reqwest::Client, token: &str) -> anyhow::Result<G
         let text = client
             .get(format!("{API_BASE}/user"))
             .header("Authorization", format!("Bearer {token}"))
-            .header("User-Agent", "act4g/0.1")
+            .header("User-Agent", "gact/0.1")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
@@ -244,7 +244,7 @@ pub async fn get_notifications(
                     ("page", &page.to_string()),
                 ])
                 .header("Authorization", format!("Bearer {token}"))
-                .header("User-Agent", "act4g/0.1")
+                .header("User-Agent", "gact/0.1")
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
                 .send()
@@ -287,7 +287,7 @@ pub async fn mark_notification_as_read(
                 "{API_BASE}/notifications/threads/{notification_id}"
             ))
             .header("Authorization", format!("Bearer {token}"))
-            .header("User-Agent", "act4g/0.1")
+            .header("User-Agent", "gact/0.1")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
@@ -315,7 +315,7 @@ pub async fn get_notification_detail(
         let text = client
             .get(&subject_url)
             .header("Authorization", format!("Bearer {token}"))
-            .header("User-Agent", "act4g/0.1")
+            .header("User-Agent", "gact/0.1")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()

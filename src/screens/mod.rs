@@ -552,7 +552,7 @@ pub fn device_authorization_url(verification_uri: &str, user_code: &str) -> Stri
     } else {
         '?'
     };
-    format!("{verification_uri}{separator}act4g_code={user_code}")
+    format!("{verification_uri}{separator}gact_code={user_code}")
 }
 
 impl gpui::Render for Router {

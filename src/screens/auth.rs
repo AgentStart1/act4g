@@ -47,7 +47,7 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::Int
                         .text_color(rgb(ACCENT))
                         .child("4g"),
                 )
-                .child(div().text_3xl().text_color(rgb(TEXT)).child("act4g"))
+                .child(div().text_3xl().text_color(rgb(TEXT)).child("gact"))
                 .child(
                     div()
                         .text_sm()
