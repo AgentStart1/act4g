@@ -18,8 +18,8 @@ import javax.crypto.spec.GCMParameterSpec;
 /** App-private credential storage backed by an AES key in Android Keystore. */
 public final class GpuiSecureStorage {
     private static final String TAG = "GpuiSecureStorage";
-    private static final String PREFERENCES = "act4g_secure_credentials";
-    private static final String KEY_ALIAS = "act4g_credentials_key_v1";
+    private static final String PREFERENCES = "gact_secure_credentials";
+    private static final String KEY_ALIAS = "gact_credentials_key_v1";
     private static final String CIPHER = "AES/GCM/NoPadding";
 
     private GpuiSecureStorage() {}

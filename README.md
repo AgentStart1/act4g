@@ -1,9 +1,9 @@
-# act4g
+# gact
 
-act4g is a focused Android client for keeping up with the GitHub activity that
+gact is a focused Android client for keeping up with the GitHub activity that
 matters to you.
 
-> act4g is in early development and is not an official GitHub application.
+> gact is in early development and is not an official GitHub application.
 
 ## Features
 
@@ -17,29 +17,29 @@ matters to you.
 
 ## Download and installation
 
-act4g has not been released yet. When builds become available, they will be
-published on the [Releases](https://github.com/storytellerF/act4g/releases)
+gact has not been released yet. When builds become available, they will be
+published on the [Releases](../../releases)
 page.
 
 - **Release** builds are intended for everyday use.
 - **Alpha** builds contain the newest changes and may be less stable. Their app
   icon includes an `ALPHA` ribbon.
 
-act4g supports Android 8.0 (API 26) and newer. Android may ask you to allow your
+gact supports Android 8.0 (API 26) and newer. Android may ask you to allow your
 browser or file manager to install unknown apps before installing an APK.
 
-The Android package name is `com.storytellerf.act4g`.
+The Android package name is `com.storytellerf.gact`.
 
 ## Sign in to GitHub
 
-1. Open act4g and tap **Sign in with GitHub**.
-2. act4g opens GitHub's device authorization page in your browser.
+1. Open gact and tap **Sign in with GitHub**.
+2. gact opens GitHub's device authorization page in your browser.
 3. Confirm the displayed code and approve access.
-4. Return to act4g. The app completes sign-in and loads your notifications.
+4. Return to gact. The app completes sign-in and loads your notifications.
 
-act4g never asks you to enter your GitHub password inside the app. Your session
+gact never asks you to enter your GitHub password inside the app. Your session
 credential is stored in Android's secure storage and removed when you sign out.
-To show notification details from private repositories, act4g requests GitHub's
+To show notification details from private repositories, gact requests GitHub's
 `repo` OAuth scope. GitHub currently does not offer a read-only OAuth scope for
 private repository content.
 
@@ -66,7 +66,7 @@ it fails, preventing the app from opening the wrong page.
 
 ## Privacy and permissions
 
-act4g uses network access to communicate with the GitHub API and uses your
+gact uses network access to communicate with the GitHub API and uses your
 system browser for GitHub authorization. The current version has no independent
 account server and does not collect your GitHub password.
 
@@ -76,11 +76,11 @@ settings.
 ## Report a problem
 
 If notifications do not load, a screen looks incorrect, or a link opens the
-wrong page, please open an [issue](https://github.com/storytellerF/act4g/issues)
+wrong page, please open an [issue](../../issues)
 and include:
 
 - Your Android version and device model
-- The act4g build type, if known
+- The gact build type, if known
 - Steps that reproduce the problem
 - Any screenshots or error messages that are safe to share
 
@@ -88,7 +88,7 @@ Do not include access tokens, authorization codes, or other sensitive data.
 
 ## Development
 
-act4g is built with Rust, GPUI Mobile, and Android Gradle. Pull requests run
+gact is built with Rust, GPUI Mobile, and Android Gradle. Pull requests run
 Rust tests, Clippy, Detekt, and an Android debug build.
 
 The project is under active development. Issues and pull requests are welcome.

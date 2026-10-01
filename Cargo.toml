@@ -1,11 +1,11 @@
 [package]
-name = "act4g"
+name = "gact"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-name = "act4g"
+name = "gact"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]

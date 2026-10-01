@@ -34,14 +34,14 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             {
               echo "build_type=Release"
-              echo "artifact_name=act4g-${GITHUB_REF_NAME}"
+              echo "artifact_name=gact-${GITHUB_REF_NAME}"
               echo "version_name=${GITHUB_REF_NAME#v}"
               echo "source_apk=android/gradle/app/build/outputs/apk/release/app-release.apk"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "build_type=Alpha"
-              echo "artifact_name=act4g-alpha-${GITHUB_SHA::7}"
+              echo "artifact_name=gact-alpha-${GITHUB_SHA::7}"
               echo "version_name=0.1.0-alpha.${GITHUB_RUN_NUMBER}"
               echo "source_apk=android/gradle/app/build/outputs/apk/alpha/app-alpha.apk"
             } >> "$GITHUB_OUTPUT"
@@ -105,7 +105,7 @@ jobs:
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         shell: bash
-        run: printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/act4g.jks"
+        run: printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/gact.jks"
 
       - name: Build Rust library
         env:
@@ -120,12 +120,12 @@ jobs:
 
       - name: Build signed APK
         env:
-          ACT4G_KEYSTORE_FILE: ${{ runner.temp }}/act4g.jks
-          ACT4G_KEYSTORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          ACT4G_KEY_ALIAS: ${{ secrets.ALIAS }}
-          ACT4G_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          ACT4G_VERSION_CODE: ${{ github.run_number }}
-          ACT4G_VERSION_NAME: ${{ steps.package.outputs.version_name }}
+          GACT_KEYSTORE_FILE: ${{ runner.temp }}/gact.jks
+          GACT_KEYSTORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          GACT_KEY_ALIAS: ${{ secrets.ALIAS }}
+          GACT_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          GACT_VERSION_CODE: ${{ github.run_number }}
+          GACT_VERSION_NAME: ${{ steps.package.outputs.version_name }}
         run: gradle --project-dir android/gradle "assemble${{ steps.package.outputs.build_type }}" --no-daemon
 
       - name: Verify and stage APK

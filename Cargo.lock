@@ -3,24 +3,6 @@
 version = 4
 
 [[package]]
-name = "act4g"
-version = "0.1.0"
-dependencies = [
- "android-activity",
- "android_logger",
- "anyhow",
- "gpui",
- "gpui-mobile",
- "jni 0.22.4",
- "log",
- "reqwest_client",
- "serde",
- "serde_json",
- "smol",
- "zed-reqwest",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1767,6 +1749,24 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gact"
+version = "0.1.0"
+dependencies = [
+ "android-activity",
+ "android_logger",
+ "anyhow",
+ "gpui",
+ "gpui-mobile",
+ "jni 0.22.4",
+ "log",
+ "reqwest_client",
+ "serde",
+ "serde_json",
+ "smol",
+ "zed-reqwest",
 ]
 
 [[package]]

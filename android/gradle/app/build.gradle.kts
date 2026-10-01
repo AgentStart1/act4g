@@ -4,10 +4,10 @@ plugins {
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
 
-val keystoreFile = providers.environmentVariable("ACT4G_KEYSTORE_FILE").orNull
-val keystorePassword = providers.environmentVariable("ACT4G_KEYSTORE_PASSWORD").orNull
-val keyAliasValue = providers.environmentVariable("ACT4G_KEY_ALIAS").orNull
-val keyPasswordValue = providers.environmentVariable("ACT4G_KEY_PASSWORD").orNull
+val keystoreFile = providers.environmentVariable("GACT_KEYSTORE_FILE").orNull
+val keystorePassword = providers.environmentVariable("GACT_KEYSTORE_PASSWORD").orNull
+val keyAliasValue = providers.environmentVariable("GACT_KEY_ALIAS").orNull
+val keyPasswordValue = providers.environmentVariable("GACT_KEY_PASSWORD").orNull
 val signingReady = listOf(
     keystoreFile,
     keystorePassword,
@@ -16,21 +16,21 @@ val signingReady = listOf(
 ).all { !it.isNullOrBlank() }
 
 android {
-    namespace = "com.storytellerf.act4g"
+    namespace = "com.storytellerf.gact"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.storytellerf.act4g"
+        applicationId = "com.storytellerf.gact"
         minSdk = 26
         targetSdk = 34
-        versionCode = providers.environmentVariable("ACT4G_VERSION_CODE").orNull?.toInt() ?: 1
-        versionName = providers.environmentVariable("ACT4G_VERSION_NAME").orNull ?: "0.1.0"
+        versionCode = providers.environmentVariable("GACT_VERSION_CODE").orNull?.toInt() ?: 1
+        versionName = providers.environmentVariable("GACT_VERSION_NAME").orNull ?: "0.1.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
 
-        manifestPlaceholders["nativeLibraryName"] = "act4g"
+        manifestPlaceholders["nativeLibraryName"] = "gact"
     }
 
     signingConfigs {
@@ -79,7 +79,7 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = false
-            keepDebugSymbols += listOf("*/arm64-v8a/libact4g.so")
+            keepDebugSymbols += listOf("*/arm64-v8a/libgact.so")
         }
     }
 

@@ -17,7 +17,7 @@ fn android_main(app: android_activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
-            .with_tag("act4g"),
+            .with_tag("gact"),
     );
 
     jni::install_panic_hook();
