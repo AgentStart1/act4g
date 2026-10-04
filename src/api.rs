@@ -1,3 +1,9 @@
+mod repositories;
+pub use repositories::{
+    get_repository_items, get_repository_summaries, ItemFilter, OpenItem, Repository,
+    RepositorySummary,
+};
+
 use serde::Deserialize;
 use std::future::Future;
 

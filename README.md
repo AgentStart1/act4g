@@ -8,6 +8,8 @@ matters to you.
 ## Features
 
 - View GitHub notifications and distinguish unread items
+- Browse accessible personal, organization, and collaborator repositories with separate open issue and PR counts
+- Hide repositories with no open issues or PRs, and open a repository to browse its items
 - Search by repository name or notification title
 - Read details for issues, pull requests, releases, and check runs
 - Open the corresponding page on GitHub from a notification
@@ -45,7 +47,9 @@ private repository content.
 
 ## Using the app
 
-- Tap **Refresh** to load the latest notifications.
+- Tap **Repositories** in the inbox to view open issue and PR counts for your accessible repositories.
+- Tap a repository, then switch between **Issues** and **PRs**; tap an item to open it on GitHub.
+- Tap **Refresh** to load the latest notifications or repository data.
 - Tap a notification card to view its details.
 - After the details load, tap **Open on GitHub** to open the matching web page.
 - If a request fails, confirm that your device can reach GitHub and check your

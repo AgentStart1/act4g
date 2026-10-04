@@ -210,6 +210,20 @@ fn top_bar(
                         }),
                 ),
         )
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .rounded_lg()
+                .bg(rgb(SURFACE))
+                .text_sm()
+                .text_color(rgb(ACCENT))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(|router, _, _, cx| router.open_repositories(cx)),
+                )
+                .child("Repositories  →"),
+        )
         // Search field.
         .child(
             div()
