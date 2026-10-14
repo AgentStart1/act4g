@@ -36,7 +36,7 @@ The Android package name is `com.storytellerf.gact`.
 
 1. Open gact and tap **Sign in with GitHub**.
 2. gact opens GitHub's device authorization page in your browser.
-3. Confirm the displayed code and approve access.
+3. Tap **Copy code** in gact, paste it into GitHub's device authorization page, and approve access.
 4. Return to gact. The app completes sign-in and loads your notifications.
 
 gact never asks you to enter your GitHub password inside the app. Your session

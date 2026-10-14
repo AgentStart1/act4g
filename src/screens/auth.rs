@@ -196,6 +196,28 @@ fn waiting_view(
                 )
                 .child(
                     div()
+                        .w_full()
+                        .h(px(44.))
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(rgb(BORDER))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(move |_, _, _, _| {
+                                if let Err(error) =
+                                    gpui_mobile::packages::clipboard::set_text(&code)
+                                {
+                                    log::warn!("Failed to copy device authorization code: {error}");
+                                }
+                            }),
+                        )
+                        .child(div().text_sm().text_color(rgb(ACCENT)).child("Copy code")),
+                )
+                .child(
+                    div()
                         .text_xs()
                         .text_color(rgb(SUBTEXT))
                         .text_center()
