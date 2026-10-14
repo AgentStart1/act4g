@@ -19,7 +19,7 @@ pub struct OpenItem {
     pub number: u64,
     pub title: String,
     pub html_url: String,
-    pub user: ItemAuthor,
+    pub user: Option<ItemAuthor>,
     #[serde(default)]
     pub pull_request: Option<serde_json::Value>,
 }
@@ -256,6 +256,14 @@ mod tests {
     #[test]
     fn distinguishes_prs_in_issue_response() {
         let items: Vec<OpenItem> = serde_json::from_str(r#"[{"number":1,"title":"Issue","html_url":"https://github.com/o/r/issues/1","user":{"login":"a"}},{"number":2,"title":"PR","html_url":"https://github.com/o/r/pull/2","user":{"login":"b"},"pull_request":{"url":"https://api.github.com/repos/o/r/pulls/2"}}]"#).unwrap();
+        assert!(items[0].pull_request.is_none());
+        assert!(items[1].pull_request.is_some());
+    }
+    #[test]
+    fn accepts_issues_and_prs_without_authors() {
+        let items: Vec<OpenItem> = serde_json::from_str(r#"[{"number":1,"title":"Issue","html_url":"https://github.com/o/r/issues/1","user":null},{"number":2,"title":"PR","html_url":"https://github.com/o/r/pull/2","user":null,"pull_request":{"url":"https://api.github.com/repos/o/r/pulls/2"}}]"#).unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|item| item.user.is_none()));
         assert!(items[0].pull_request.is_none());
         assert!(items[1].pull_request.is_some());
     }

@@ -114,6 +114,11 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl IntoEleme
         }
         for item in items {
             let url = item.html_url.clone();
+            let author = item
+                .user
+                .as_ref()
+                .map(|user| format!("@{}", user.login))
+                .unwrap_or_else(|| "Unknown author".into());
             content = content.child(
                 div()
                     .id(SharedString::from(format!(
@@ -150,7 +155,7 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl IntoEleme
                         div()
                             .text_xs()
                             .text_color(rgb(MUTED))
-                            .child(format!("#{} · @{}", item.number, item.user.login)),
+                            .child(format!("#{} · {}", item.number, author)),
                     )
                     .child(
                         div()
