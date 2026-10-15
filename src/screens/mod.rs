@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod detail;
 pub mod home;
+pub mod repositories;
 
 use gpui::{div, prelude::*};
 use gpui_mobile::{set_system_chrome, StatusBarContentStyle, SystemChromeStyle};
@@ -17,6 +18,8 @@ pub enum Screen {
     Auth,
     Home,
     Detail,
+    Repositories,
+    RepositoryItems,
 }
 
 pub enum AuthPhase {
@@ -46,6 +49,16 @@ pub struct Router {
     pub notification_detail: Option<NotificationDetail>,
     pub notification_detail_loading: bool,
     pub notification_detail_error: Option<String>,
+    pub repositories: Vec<crate::api::RepositorySummary>,
+    pub repositories_loading: bool,
+    pub repositories_error: Option<String>,
+    pub repositories_request_id: u64,
+    pub selected_repository: Option<crate::api::Repository>,
+    pub repository_items: Vec<crate::api::OpenItem>,
+    pub repository_items_loading: bool,
+    pub repository_items_error: Option<String>,
+    pub repository_items_request_id: u64,
+    pub item_filter: crate::api::ItemFilter,
     pub auth_request_id: u64,
     pub home_request_id: u64,
     pub detail_request_id: u64,
@@ -72,6 +85,16 @@ impl Router {
             notification_detail: None,
             notification_detail_loading: false,
             notification_detail_error: None,
+            repositories: Vec::new(),
+            repositories_loading: false,
+            repositories_error: None,
+            repositories_request_id: 0,
+            selected_repository: None,
+            repository_items: Vec::new(),
+            repository_items_loading: false,
+            repository_items_error: None,
+            repository_items_request_id: 0,
+            item_filter: crate::api::ItemFilter::Issues,
             auth_request_id: 0,
             home_request_id: 0,
             detail_request_id: 0,
@@ -327,6 +350,7 @@ impl Router {
                         if let Err(error) = crate::credentials::clear_token() {
                             log::warn!("Failed to remove expired GitHub session: {error}");
                         }
+                        router.clear_repository_data();
                         router.token = None;
                         router.user = None;
                         router.notifications.clear();
@@ -504,6 +528,145 @@ impl Router {
         }
     }
 
+    pub fn open_repositories(&mut self, cx: &mut gpui::Context<Self>) {
+        gpui_mobile::set_text_input_callback(None);
+        gpui_mobile::hide_keyboard();
+        self.navigate_to(Screen::Repositories);
+        self.refresh_repositories(cx);
+    }
+
+    pub fn refresh_repositories(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.repositories_loading {
+            return;
+        }
+        let Some(token) = self.token.clone() else {
+            return;
+        };
+        self.repositories_request_id = self.repositories_request_id.wrapping_add(1);
+        let request_id = self.repositories_request_id;
+        self.repositories_loading = true;
+        self.repositories_error = None;
+        cx.notify();
+        cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
+            let result = match crate::api::make_client() {
+                Ok(client) => crate::api::get_repository_summaries(&client, &token).await,
+                Err(error) => Err(error),
+            };
+            entity
+                .update(cx, |router, cx| {
+                    if router.repositories_request_id != request_id
+                        || router.token.as_deref() != Some(token.as_str())
+                    {
+                        return;
+                    }
+                    router.repositories_loading = false;
+                    match result {
+                        Ok(repositories) => router.repositories = repositories,
+                        Err(error) => {
+                            if crate::api::is_unauthorized(&error) {
+                                router.sign_out(cx);
+                                router.auth_phase = AuthPhase::Error(
+                                    "Your GitHub session expired. Sign in again to continue.".into(),
+                                );
+                            } else {
+                                log::warn!("Failed to load repositories: {error:#}");
+                                router.repositories_error = Some(
+                                    "Could not refresh repositories. Check connection, access and API limits."
+                                        .into(),
+                                );
+                            }
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    pub fn open_repository(
+        &mut self,
+        repository: crate::api::Repository,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.repository_items_request_id = self.repository_items_request_id.wrapping_add(1);
+        self.repository_items_loading = false;
+        self.repository_items.clear();
+        self.item_filter = if self.repositories.iter().any(|summary| {
+            summary.repository.full_name == repository.full_name && summary.issues == 0
+        }) {
+            crate::api::ItemFilter::PullRequests
+        } else {
+            crate::api::ItemFilter::Issues
+        };
+        self.selected_repository = Some(repository);
+        self.navigate_to(Screen::RepositoryItems);
+        self.refresh_repository_items(cx);
+    }
+
+    pub fn refresh_repository_items(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.repository_items_loading {
+            return;
+        }
+        let (Some(token), Some(repository)) =
+            (self.token.clone(), self.selected_repository.clone())
+        else {
+            return;
+        };
+        self.repository_items_request_id = self.repository_items_request_id.wrapping_add(1);
+        let request_id = self.repository_items_request_id;
+        self.repository_items_loading = true;
+        self.repository_items_error = None;
+        cx.notify();
+        cx.spawn(async move |entity: gpui::WeakEntity<Self>, cx| {
+            let result = match crate::api::make_client() {
+                Ok(client) => crate::api::get_repository_items(&client, &token, &repository).await,
+                Err(error) => Err(error),
+            };
+            entity
+                .update(cx, |router, cx| {
+                    if router.repository_items_request_id != request_id
+                        || router.token.as_deref() != Some(token.as_str())
+                    {
+                        return;
+                    }
+                    router.repository_items_loading = false;
+                    match result {
+                        Ok(items) => router.repository_items = items,
+                        Err(error) => {
+                            if crate::api::is_unauthorized(&error) {
+                                router.sign_out(cx);
+                                router.auth_phase = AuthPhase::Error(
+                                    "Your GitHub session expired. Sign in again to continue.".into(),
+                                );
+                            } else {
+                                log::warn!("Failed to load repository items: {error:#}");
+                                router.repository_items_error = Some(
+                                    "Could not refresh issues and PRs. Check connection and repository access."
+                                        .into(),
+                                );
+                            }
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    fn clear_repository_data(&mut self) {
+        self.repositories_request_id = self.repositories_request_id.wrapping_add(1);
+        self.repository_items_request_id = self.repository_items_request_id.wrapping_add(1);
+        self.repositories.clear();
+        self.repositories_loading = false;
+        self.repositories_error = None;
+        self.selected_repository = None;
+        self.repository_items.clear();
+        self.repository_items_loading = false;
+        self.repository_items_error = None;
+    }
+
     pub fn sign_out(&mut self, cx: &mut gpui::Context<Self>) {
         self.auth_request_id = self.auth_request_id.wrapping_add(1);
         if let Some(cancel) = self.polling_cancel.take() {
@@ -514,6 +677,7 @@ impl Router {
         if let Err(error) = crate::credentials::clear_token() {
             log::warn!("Failed to remove saved GitHub session: {error}");
         }
+        self.clear_repository_data();
         self.token = None;
         self.user = None;
         self.notifications.clear();
@@ -575,6 +739,9 @@ impl gpui::Render for Router {
                 Screen::Auth => auth::render(self, cx).into_any_element(),
                 Screen::Home => home::render(self, cx).into_any_element(),
                 Screen::Detail => detail::render(self, cx).into_any_element(),
+                Screen::Repositories | Screen::RepositoryItems => {
+                    repositories::render(self, cx).into_any_element()
+                }
             })
     }
 }
