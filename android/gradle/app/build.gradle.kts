@@ -92,11 +92,17 @@ android {
 easylauncher {
     buildTypes {
         register("debug") {
-            enable(false)
+            filters(
+                customRibbon(
+                    label = "DEBUG",
+                    ribbonColor = "#238636",
+                    labelColor = "#FFFFFF",
+                )
+            )
         }
         register("alpha") {
             filters(
-                chromeLike(
+                customRibbon(
                     label = "ALPHA",
                     ribbonColor = "#D29922",
                     labelColor = "#FFFFFF",
