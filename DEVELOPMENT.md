@@ -1,7 +1,9 @@
 # Development
 
 gact uses Rust, GPUI Mobile, and Android Gradle. CI runs on Ubuntu 24.04 with
-JDK 17, Gradle 9.4.1, Python 3.11 or newer, and the `aarch64-linux-android` Rust target.
+JDK 17, Python 3.11 or newer, and the `aarch64-linux-android` Rust target.
+The checked-in Gradle Wrapper selects Gradle 9.4.1; a separate Gradle installation
+is not required. CI uses `setup-gradle` for caching and wrapper validation.
 Install `cargo-ndk` with `cargo install cargo-ndk --locked`.
 
 ## Android toolchain
@@ -17,10 +19,10 @@ From the repository root:
 
 ```sh
 python3 scripts/android-build-checks.py ndk
-gradle --project-dir android/gradle verifyAndroidNdk detekt --no-daemon --warning-mode all
+./android/gradle/gradlew --project-dir android/gradle verifyAndroidNdk detekt --no-daemon --warning-mode all
 cargo ndk -t arm64-v8a -P 26 --manifest-path Cargo.toml \
   -o android/gradle/app/src/main/jniLibs build --locked
-gradle --project-dir android/gradle assembleDebug --no-daemon --warning-mode all
+./android/gradle/gradlew --project-dir android/gradle assembleDebug --no-daemon --warning-mode all
 python3 scripts/android-build-checks.py apk android/gradle/app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -69,3 +71,17 @@ cargo fmt --check
 cargo test --locked
 cargo clippy --locked --all-targets -- -D warnings
 ```
+
+## Continuous integration
+
+The Test workflow runs on pull requests to `main`, pushes to `main`, and manual
+dispatch. Rust checks and Android checks/debug builds run in parallel on separate
+runners. Both jobs must pass; branch protection should require `Rust checks` and
+`Android checks and debug build` in place of the former combined check.
+The Android job builds JNI libraries before assembling and verifying the APK.
+
+Rust caches use separate `shared-key` values: `host-checks-v1`,
+`android-debug-v1`, and `android-release-v1` for publishing. Main runs warm the
+verification caches for subsequent pull requests. Pull requests also save Rust
+caches for their own subsequent runs. Gradle retains its default cache policy:
+main writes the cache and pull requests restore it read-only.
