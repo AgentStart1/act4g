@@ -92,7 +92,6 @@ Do not include access tokens, authorization codes, or other sensitive data.
 
 ## Development
 
-gact is built with Rust, GPUI Mobile, and Android Gradle. Pull requests run
-Rust tests, Clippy, Detekt, and an Android debug build.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for build instructions and checks.
 
 The project is under active development. Issues and pull requests are welcome.
