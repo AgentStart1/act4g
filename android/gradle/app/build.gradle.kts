@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("com.starter.easylauncher") version "6.4.1"
@@ -18,6 +20,7 @@ val signingReady = listOf(
 android {
     namespace = "com.storytellerf.gact"
     compileSdk = 37
+    ndkVersion = providers.gradleProperty("gact.ndkVersion").get()
 
     defaultConfig {
         applicationId = "com.storytellerf.gact"
@@ -72,7 +75,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
+            jniLibs.directories += "src/main/jniLibs"
         }
     }
 
@@ -86,6 +89,31 @@ android {
     lint {
         abortOnError = false
         checkReleaseBuilds = false
+    }
+}
+
+val resolvedNdkDirectory = androidComponents.sdkComponents.ndkDirectory
+val expectedNdkVersion = providers.gradleProperty("gact.ndkVersion")
+val ndkEnvironment = listOf("ANDROID_NDK_HOME", "ANDROID_NDK_ROOT", "NDK_HOME")
+    .associateWith { providers.environmentVariable(it) }
+
+tasks.register("verifyAndroidNdk") {
+    group = "verification"
+    description = "Checks that Gradle and the native build use the same NDK installation."
+    doLast {
+        val ndkDirectory = resolvedNdkDirectory.get().asFile.canonicalFile
+        val properties = Properties().apply {
+            ndkDirectory.resolve("source.properties").inputStream().use { load(it) }
+        }
+        check(properties.getProperty("Pkg.Revision") == expectedNdkVersion.get()) {
+            "Gradle resolved an unexpected NDK: $ndkDirectory"
+        }
+        ndkEnvironment.forEach { (name, value) ->
+            check(file(value.get()).canonicalFile == ndkDirectory) {
+                "$name does not match Gradle's NDK: $ndkDirectory"
+            }
+        }
+        logger.lifecycle("Gradle NDK ${expectedNdkVersion.get()}: $ndkDirectory")
     }
 }
 
@@ -134,6 +162,10 @@ tasks.withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
         txt.required.set(false)
         md.required.set(false)
     }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-Xlint:deprecation")
 }
 
 dependencies {

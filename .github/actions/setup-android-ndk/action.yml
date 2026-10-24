@@ -1,0 +1,18 @@
+name: Set up project Android NDK
+description: Install the shared NDK version and verify the Rust toolchain selection.
+runs:
+  using: composite
+  steps:
+    - name: Install and select Android NDK
+      shell: bash
+      run: |
+        ndk_version="$(sed -n 's/^gact.ndkVersion=//p' android/gradle/gradle.properties | tr -d '\r')"
+        test -n "$ndk_version"
+        android sdk install "ndk/$ndk_version"
+        ndk_root="$ANDROID_SDK_ROOT/ndk/$ndk_version"
+        for name in ANDROID_NDK_HOME ANDROID_NDK_ROOT NDK_HOME; do
+          echo "$name=$ndk_root" >> "$GITHUB_ENV"
+        done
+    - name: Verify cargo-ndk and clang
+      shell: bash
+      run: python3 scripts/android-build-checks.py ndk

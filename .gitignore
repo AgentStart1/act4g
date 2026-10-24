@@ -22,3 +22,4 @@ keystore.properties
 .idea/
 *.iml
 /.codex-tmp/
+__pycache__/

@@ -42,6 +42,9 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      - name: Test Android package checks
+        run: python3 -m unittest discover -s scripts -p 'test_android_build_checks.py'
+
       - name: Set up JDK 17
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -53,10 +56,8 @@ jobs:
         with:
           packages: platform-tools
 
-      - name: Install Android NDK r25c
-        run: |
-          sdkmanager --install "ndk;25.2.9519653"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/25.2.9519653" >> "$GITHUB_ENV"
+      - name: Set up project Android NDK
+        uses: ./.github/actions/setup-android-ndk
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
@@ -64,7 +65,7 @@ jobs:
           gradle-version: "9.4.1"
 
       - name: Analyze Kotlin code
-        run: gradle --project-dir android/gradle detekt --no-daemon
+        run: gradle --project-dir android/gradle verifyAndroidNdk detekt --no-daemon --warning-mode all
 
       - name: Build Android debug variant without OAuth configuration
         run: |
@@ -74,4 +75,5 @@ jobs:
             --manifest-path Cargo.toml \
             -o android/gradle/app/src/main/jniLibs \
             build --locked
-          gradle --project-dir android/gradle assembleDebug --no-daemon
+          gradle --project-dir android/gradle assembleDebug --no-daemon --warning-mode all
+          python3 scripts/android-build-checks.py apk android/gradle/app/build/outputs/apk/debug/app-debug.apk
