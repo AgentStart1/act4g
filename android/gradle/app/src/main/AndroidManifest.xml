@@ -27,17 +27,14 @@
         android:theme="@style/GpuiTheme">
 
         <activity
-            android:name="dev.gpui.mobile.GpuiActivity"
+            android:name="com.storytellerf.gact.GactActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density"
             android:exported="true"
+            android:enableOnBackInvokedCallback="true"
             android:launchMode="singleTask"
             android:screenOrientation="unspecified"
             android:theme="@style/GpuiSplashTheme"
-            android:windowSoftInputMode="adjustResize">
-
-            <meta-data
-                android:name="android.app.lib_name"
-                android:value="${nativeLibraryName}" />
+            android:windowSoftInputMode="adjustNothing">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

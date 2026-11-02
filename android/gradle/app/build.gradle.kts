@@ -23,7 +23,9 @@ android {
     ndkVersion = providers.gradleProperty("gact.ndkVersion").get()
 
     defaultConfig {
-        applicationId = "com.storytellerf.gact"
+        applicationId = providers.gradleProperty("gact.applicationId")
+            .getOrElse("com.storytellerf.gact")
+        testInstrumentationRunner = "com.storytellerf.gact.ActivityLifecycleTest"
         minSdk = 26
         targetSdk = 34
         versionCode = providers.environmentVariable("GACT_VERSION_CODE").orNull?.toInt() ?: 1
@@ -33,7 +35,6 @@ android {
             abiFilters += listOf("arm64-v8a")
         }
 
-        manifestPlaceholders["nativeLibraryName"] = "gact"
     }
 
     signingConfigs {

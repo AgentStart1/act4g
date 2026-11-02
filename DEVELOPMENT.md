@@ -2,7 +2,7 @@
 
 gact uses Rust, GPUI Mobile, and Android Gradle. CI runs on Ubuntu 24.04 with
 JDK 17, Python 3.11 or newer, and the `aarch64-linux-android` Rust target.
-The checked-in Gradle Wrapper selects Gradle 9.4.1; a separate Gradle installation
+The checked-in Gradle Wrapper selects Gradle 9.8.2; a separate Gradle installation
 is not required. CI uses `setup-gradle` for caching and wrapper validation.
 Install `cargo-ndk` with `cargo install cargo-ndk --locked`.
 
@@ -47,6 +47,58 @@ Local verification can use a disposable signing key; that does not validate the
 production signing credentials. Never commit signing keys or passwords.
 
 ## Diagnostics
+
+### Android host and lifecycle regression
+
+The app uses the unmodified upstream `gpui-mobile` commit
+`5fd54f4554263ae06753e90472c7f2e2ff5d7495` and its matching `gpui-pre` 0.3.6
+packages. There is no vendored platform patch. `GactActivity` owns a SurfaceView
+and forwards lifecycle, touch, hardware-key and IME events through
+`src/android_host.rs` to `android::host`. Its render thread, GPUI Application and
+Router live for the process lifetime. Recreating an Activity replaces its Java
+reference and surface while preserving the native UI state. A process restart
+creates a new runtime and restores credentials through Android Keystore.
+
+`GactInputActivity` adapts upstream's InputConnection example for a plain Activity.
+Credential JNI calls resolve app classes through the current Activity class loader.
+The unused `android_main` compatibility symbol is retained solely because
+upstream still links android-activity glue; it never constructs GPUI.
+The native Surface is released through `host::surface_destroyed` before Android
+can destroy it. UI readiness requires a valid Surface and a launched native
+runtime; the render-thread ID is available for lifecycle diagnostics.
+The host uses `adjustNothing` and forwards the IME's overlap with the SurfaceView
+in logical pixels. Router reserves that space at the bottom of its content while
+the GPU surface remains unchanged, preventing keyboard animation from scaling
+previously queued frames. Window insets are measured relative to the view, so
+system bars already outside the SurfaceView are not counted twice.
+
+Build native libraries first as described above, then build an isolated test
+package (no account or existing app data is required):
+
+```sh
+./android/gradle/gradlew --project-dir android/gradle \
+  assembleDebug assembleDebugAndroidTest \
+  -Pgact.applicationId=com.storytellerf.gact.lifecycle
+adb install -r android/gradle/app/build/outputs/apk/debug/app-debug.apk
+adb install -r android/gradle/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w \
+  com.storytellerf.gact.lifecycle.test/com.storytellerf.gact.ActivityLifecycleTest
+adb shell am instrument -w -e scenario keyboard \
+  com.storytellerf.gact.lifecycle.test/com.storytellerf.gact.ActivityLifecycleTest
+adb shell am instrument -w -e scenario background -e backgroundMs 60000 \
+  com.storytellerf.gact.lifecycle.test/com.storytellerf.gact.ActivityLifecycleTest
+```
+
+The unlocked-device tests run independently. The default scenario recreates the
+Activity ten times, verifying the same render thread and rendered content after
+each transition. The background scenario checks the same Activity, render thread
+and visible content after returning from the home screen; its default wait is
+30 seconds. Success prints `PASS`. A native crash terminates instrumentation and
+is a failure. Inspect `adb logcat` and
+`dumpsys dropbox --print data_app_native_crash` for failures.
+The test package remains separate from the normal `com.storytellerf.gact` app.
+The keyboard scenario verifies that showing the IME preserves the view and buffer
+dimensions, and that hiding it restores the rendered content.
 
 Both CI workflows use `--warning-mode all` to show individual Gradle deprecations.
 Java compilation uses `-Xlint:deprecation` to show the source locations behind

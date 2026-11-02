@@ -250,12 +250,7 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl IntoEleme
                                 .on_mouse_down(
                                     gpui::MouseButton::Left,
                                     cx.listener(move |router, _, _, cx| {
-                                        router.navigate_to(if detail {
-                                            Screen::Repositories
-                                        } else {
-                                            Screen::Home
-                                        });
-                                        cx.notify();
+                                        router.go_back(cx);
                                     }),
                                 )
                                 .child(if detail {
