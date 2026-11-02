@@ -1,6 +1,7 @@
 package dev.gpui.mobile;
 
 import android.content.Context;
+import com.storytellerf.gact.GactActivity;
 import android.content.SharedPreferences;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -25,7 +26,7 @@ public final class GpuiSecureStorage {
     private GpuiSecureStorage() {}
 
     public static String getString(String key) {
-        Context context = GpuiActivity.getAppContext();
+        Context context = GactActivity.getAppContext();
         if (context == null) {
             return null;
         }
@@ -55,7 +56,7 @@ public final class GpuiSecureStorage {
     }
 
     public static boolean putString(String key, String value) {
-        Context context = GpuiActivity.getAppContext();
+        Context context = GactActivity.getAppContext();
         if (context == null) {
             return false;
         }
@@ -75,7 +76,7 @@ public final class GpuiSecureStorage {
     }
 
     public static boolean remove(String key) {
-        Context context = GpuiActivity.getAppContext();
+        Context context = GactActivity.getAppContext();
         return context != null && preferences(context).edit().remove(key).commit();
     }
 

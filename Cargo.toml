@@ -9,23 +9,23 @@ name = "gact"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-gpui-mobile = { git = "https://github.com/itsbalamurali/gpui-mobile" }
-gpui = { git = "https://github.com/zed-industries/zed", rev = "5688167d224b5eca54875d49afb8bfd73a07915a", package = "gpui", default-features = false }
-reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "5688167d224b5eca54875d49afb8bfd73a07915a", package = "reqwest_client" }
-reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "c15662463bda39148ba154100dd44d3fba5873a4", package = "zed-reqwest", default-features = false, features = ["rustls-tls"] }
+gpui-mobile = { git = "https://github.com/itsbalamurali/gpui-mobile", rev = "5fd54f4554263ae06753e90472c7f2e2ff5d7495" }
+gpui = { package = "gpui-pre", version = "=0.3.6", default-features = false }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.6" }
+reqwest = { package = "gpui-pre-reqwest", version = "0.12.15", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 log = "0.4"
 smol = "2"
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
 android-activity = { version = "0.6", features = ["native-activity"] }
+libc = "0.2"
+ndk = { version = "0.9", features = ["nativewindow"] }
 jni = "0.22"
-
-[patch.crates-io]
-async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
 
 [profile.release]
 opt-level = "z"

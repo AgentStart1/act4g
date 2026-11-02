@@ -201,13 +201,15 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                                 .text_sm()
                                 .text_color(rgb(TEXT))
                                 .child(if loading {
-                                    "Loading details…".to_string()
+                                    div().child("Loading details…").into_any_element()
                                 } else if let Some(message) = error {
-                                    message
+                                    div().child(message).into_any_element()
+                                } else if let Some(markdown) = &router.notification_markdown {
+                                    markdown.render()
                                 } else {
-                                    detail.and_then(|detail| detail.body).unwrap_or_else(|| {
-                                        "No description was provided.".to_string()
-                                    })
+                                    div()
+                                        .child("No description was provided.")
+                                        .into_any_element()
                                 }),
                         ),
                 )

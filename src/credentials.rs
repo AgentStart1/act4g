@@ -6,12 +6,14 @@ pub fn load_token() -> Option<String> {
     use jni::objects::{JObject, JString, JValue};
 
     gpui_mobile::android::jni::with_env(|env| {
+        let storage =
+            gpui_mobile::android::jni::find_app_class(env, "dev.gpui.mobile.GpuiSecureStorage")?;
         let key = env
             .new_string(TOKEN_KEY)
             .map_err(|error| error.to_string())?;
         let value: JObject = env
             .call_static_method(
-                jni::jni_str!("dev/gpui/mobile/GpuiSecureStorage"),
+                &storage,
                 jni::jni_str!("getString"),
                 jni::jni_sig!("(Ljava/lang/String;)Ljava/lang/String;"),
                 &[JValue::Object(&key)],
@@ -45,13 +47,15 @@ pub fn save_token(token: &str) -> Result<(), String> {
     use jni::objects::JValue;
 
     gpui_mobile::android::jni::with_env(|env| {
+        let storage =
+            gpui_mobile::android::jni::find_app_class(env, "dev.gpui.mobile.GpuiSecureStorage")?;
         let key = env
             .new_string(TOKEN_KEY)
             .map_err(|error| error.to_string())?;
         let token = env.new_string(token).map_err(|error| error.to_string())?;
         let saved = env
             .call_static_method(
-                jni::jni_str!("dev/gpui/mobile/GpuiSecureStorage"),
+                &storage,
                 jni::jni_str!("putString"),
                 jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)Z"),
                 &[JValue::Object(&key), JValue::Object(&token)],
@@ -77,12 +81,14 @@ pub fn clear_token() -> Result<(), String> {
     use jni::objects::JValue;
 
     gpui_mobile::android::jni::with_env(|env| {
+        let storage =
+            gpui_mobile::android::jni::find_app_class(env, "dev.gpui.mobile.GpuiSecureStorage")?;
         let key = env
             .new_string(TOKEN_KEY)
             .map_err(|error| error.to_string())?;
         let removed = env
             .call_static_method(
-                jni::jni_str!("dev/gpui/mobile/GpuiSecureStorage"),
+                &storage,
                 jni::jni_str!("remove"),
                 jni::jni_sig!("(Ljava/lang/String;)Z"),
                 &[JValue::Object(&key)],

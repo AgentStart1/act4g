@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod detail;
 pub mod home;
+mod markdown;
 pub mod repositories;
 
 use gpui::{div, prelude::*};
@@ -22,6 +23,16 @@ pub enum Screen {
     RepositoryItems,
 }
 
+impl Screen {
+    fn parent(self) -> Option<Self> {
+        match self {
+            Self::Detail | Self::Repositories => Some(Self::Home),
+            Self::RepositoryItems => Some(Self::Repositories),
+            Self::Auth | Self::Home => None,
+        }
+    }
+}
+
 pub enum AuthPhase {
     Idle,
     RequestingCode,
@@ -36,6 +47,7 @@ pub enum AuthPhase {
 }
 
 pub struct Router {
+    pub keyboard_bottom_inset: f32,
     pub current_screen: Screen,
     pub auth_phase: AuthPhase,
     pub polling_cancel: Option<Arc<AtomicBool>>,
@@ -47,6 +59,7 @@ pub struct Router {
     pub search_query: String,
     pub selected_notification: Option<Notification>,
     pub notification_detail: Option<NotificationDetail>,
+    pub notification_markdown: Option<markdown::Document>,
     pub notification_detail_loading: bool,
     pub notification_detail_error: Option<String>,
     pub repositories: Vec<crate::api::RepositorySummary>,
@@ -66,8 +79,11 @@ pub struct Router {
 
 impl Router {
     pub fn new(cx: &mut gpui::Context<Self>) -> Self {
+        #[cfg(target_os = "android")]
+        crate::android_host::observe_events(cx);
         let saved_token = crate::credentials::load_token();
         let mut router = Self {
+            keyboard_bottom_inset: 0.,
             current_screen: if saved_token.is_some() {
                 Screen::Home
             } else {
@@ -83,6 +99,7 @@ impl Router {
             search_query: String::new(),
             selected_notification: None,
             notification_detail: None,
+            notification_markdown: None,
             notification_detail_loading: false,
             notification_detail_error: None,
             repositories: Vec::new(),
@@ -109,6 +126,33 @@ impl Router {
 
     pub fn navigate_to(&mut self, screen: Screen) {
         self.current_screen = screen;
+    }
+
+    /// Returns false when Android should handle leaving the root screen.
+    pub fn go_back(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        let Some(parent) = self.current_screen.parent() else {
+            if self.current_screen == Screen::Auth
+                && !matches!(self.auth_phase, AuthPhase::Idle | AuthPhase::Error(_))
+            {
+                self.cancel_device_flow(cx);
+                return true;
+            }
+            return false;
+        };
+        match self.current_screen {
+            Screen::Detail => self.close_notification(cx),
+            Screen::RepositoryItems => {
+                self.repository_items_request_id = self.repository_items_request_id.wrapping_add(1);
+                self.repository_items_loading = false;
+                self.selected_repository = None;
+            }
+            _ => {}
+        }
+        self.navigate_to(parent);
+        gpui_mobile::set_text_input_callback(None);
+        gpui_mobile::hide_keyboard();
+        cx.notify();
+        true
     }
 
     pub fn start_device_flow(&mut self, cx: &mut gpui::Context<Self>) {
@@ -425,6 +469,7 @@ impl Router {
         }
         self.selected_notification = Some(notification.clone());
         self.notification_detail = None;
+        self.notification_markdown = None;
         self.notification_detail_error = None;
         self.notification_detail_loading = true;
         self.detail_request_id = self.detail_request_id.wrapping_add(1);
@@ -473,6 +518,14 @@ impl Router {
                 Err(error) => Err(error),
             };
 
+            let result = cx.background_executor().spawn(async move {
+                result.map(|detail| {
+                    let markdown = detail.body.as_deref().filter(|body| !body.trim().is_empty())
+                        .map(markdown::Document::parse);
+                    (detail, markdown)
+                })
+            }).await;
+
             entity
                 .update(cx, |router, cx| {
                     if router.detail_request_id != request_id {
@@ -481,7 +534,10 @@ impl Router {
 
                     router.notification_detail_loading = false;
                     match result {
-                        Ok(detail) => router.notification_detail = Some(detail),
+                        Ok((detail, markdown)) => {
+                            router.notification_detail = Some(detail);
+                            router.notification_markdown = markdown;
+                        }
                         Err(error) => {
                             log::warn!("Failed to load notification detail: {error:#}");
                             router.notification_detail_error = Some(
@@ -502,6 +558,7 @@ impl Router {
         self.navigate_to(Screen::Home);
         self.selected_notification = None;
         self.notification_detail = None;
+        self.notification_markdown = None;
         self.notification_detail_loading = false;
         self.notification_detail_error = None;
         cx.notify();
@@ -686,6 +743,7 @@ impl Router {
         self.search_query.clear();
         self.selected_notification = None;
         self.notification_detail = None;
+        self.notification_markdown = None;
         self.notification_detail_loading = false;
         self.notification_detail_error = None;
         self.auth_phase = AuthPhase::Idle;
@@ -734,14 +792,44 @@ impl gpui::Render for Router {
             .flex()
             .flex_col()
             .size_full()
+            .pb(gpui::px(self.keyboard_bottom_inset))
             .bg(gpui::rgb(0x0D1117))
-            .child(match self.current_screen {
-                Screen::Auth => auth::render(self, cx).into_any_element(),
-                Screen::Home => home::render(self, cx).into_any_element(),
-                Screen::Detail => detail::render(self, cx).into_any_element(),
-                Screen::Repositories | Screen::RepositoryItems => {
-                    repositories::render(self, cx).into_any_element()
-                }
-            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .child(match self.current_screen {
+                        Screen::Auth => auth::render(self, cx).into_any_element(),
+                        Screen::Home => home::render(self, cx).into_any_element(),
+                        Screen::Detail => detail::render(self, cx).into_any_element(),
+                        Screen::Repositories | Screen::RepositoryItems => {
+                            repositories::render(self, cx).into_any_element()
+                        }
+                    }),
+            )
+    }
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::Screen;
+
+    #[test]
+    fn repository_back_path_returns_through_list_to_inbox() {
+        let list = Screen::RepositoryItems.parent().unwrap();
+        assert_eq!(list, Screen::Repositories);
+        assert_eq!(list.parent(), Some(Screen::Home));
+    }
+
+    #[test]
+    fn notification_back_returns_to_inbox() {
+        assert_eq!(Screen::Detail.parent(), Some(Screen::Home));
+    }
+
+    #[test]
+    fn root_screens_have_no_parent() {
+        assert_eq!(Screen::Home.parent(), None);
+        assert_eq!(Screen::Auth.parent(), None);
     }
 }

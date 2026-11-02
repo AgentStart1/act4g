@@ -51,6 +51,8 @@ private repository content.
 - Tap a repository, then switch between **Issues** and **PRs**; tap an item to open it on GitHub.
 - Tap **Refresh** to load the latest notifications or repository data.
 - Tap a notification card to view its details.
+- Notification descriptions render Markdown headings, lists, emphasis, code, and links.
+- Use Android Back to return through detail and repository screens; at the root it moves the app to the background.
 - After the details load, tap **Open on GitHub** to open the matching web page.
 - If a request fails, confirm that your device can reach GitHub and check your
   system proxy settings.
