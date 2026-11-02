@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod detail;
 pub mod home;
+mod markdown;
 pub mod repositories;
 
 use gpui::{div, prelude::*};
@@ -58,6 +59,7 @@ pub struct Router {
     pub search_query: String,
     pub selected_notification: Option<Notification>,
     pub notification_detail: Option<NotificationDetail>,
+    pub notification_markdown: Option<markdown::Document>,
     pub notification_detail_loading: bool,
     pub notification_detail_error: Option<String>,
     pub repositories: Vec<crate::api::RepositorySummary>,
@@ -97,6 +99,7 @@ impl Router {
             search_query: String::new(),
             selected_notification: None,
             notification_detail: None,
+            notification_markdown: None,
             notification_detail_loading: false,
             notification_detail_error: None,
             repositories: Vec::new(),
@@ -466,6 +469,7 @@ impl Router {
         }
         self.selected_notification = Some(notification.clone());
         self.notification_detail = None;
+        self.notification_markdown = None;
         self.notification_detail_error = None;
         self.notification_detail_loading = true;
         self.detail_request_id = self.detail_request_id.wrapping_add(1);
@@ -514,6 +518,14 @@ impl Router {
                 Err(error) => Err(error),
             };
 
+            let result = cx.background_executor().spawn(async move {
+                result.map(|detail| {
+                    let markdown = detail.body.as_deref().filter(|body| !body.trim().is_empty())
+                        .map(markdown::Document::parse);
+                    (detail, markdown)
+                })
+            }).await;
+
             entity
                 .update(cx, |router, cx| {
                     if router.detail_request_id != request_id {
@@ -522,7 +534,10 @@ impl Router {
 
                     router.notification_detail_loading = false;
                     match result {
-                        Ok(detail) => router.notification_detail = Some(detail),
+                        Ok((detail, markdown)) => {
+                            router.notification_detail = Some(detail);
+                            router.notification_markdown = markdown;
+                        }
                         Err(error) => {
                             log::warn!("Failed to load notification detail: {error:#}");
                             router.notification_detail_error = Some(
@@ -543,6 +558,7 @@ impl Router {
         self.navigate_to(Screen::Home);
         self.selected_notification = None;
         self.notification_detail = None;
+        self.notification_markdown = None;
         self.notification_detail_loading = false;
         self.notification_detail_error = None;
         cx.notify();
@@ -727,6 +743,7 @@ impl Router {
         self.search_query.clear();
         self.selected_notification = None;
         self.notification_detail = None;
+        self.notification_markdown = None;
         self.notification_detail_loading = false;
         self.notification_detail_error = None;
         self.auth_phase = AuthPhase::Idle;
