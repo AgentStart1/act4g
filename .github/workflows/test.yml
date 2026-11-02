@@ -83,7 +83,7 @@ jobs:
         uses: ./.github/actions/setup-android-ndk
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
       - name: Analyze Kotlin code
         run: ./android/gradle/gradlew --project-dir android/gradle verifyAndroidNdk detekt --no-daemon --warning-mode all
