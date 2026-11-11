@@ -1,20 +1,13 @@
+use super::theme::Palette;
 use gpui::{div, prelude::*, px, rgb};
 
 use super::{safe_area_insets, Router, Screen};
 
-const BG: u32 = 0x0D1117;
-const SURFACE: u32 = 0x161B22;
-const BORDER: u32 = 0x30363D;
-const TEXT: u32 = 0xE6EDF3;
-const SUBTEXT: u32 = 0x8B949E;
-const ACCENT: u32 = 0x58A6FF;
-const GREEN: u32 = 0x3FB950;
-const YELLOW: u32 = 0xF0883E;
-
 pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyElement {
+    let palette = router.palette;
     let Some(notification) = router.selected_notification.clone() else {
         router.current_screen = Screen::Home;
-        return div().size_full().bg(rgb(BG)).into_any_element();
+        return div().size_full().bg(rgb(palette.bg)).into_any_element();
     };
 
     let detail = router.notification_detail.clone();
@@ -28,11 +21,11 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
         .is_some()
         || !open_requires_detail;
     let (safe_top, safe_bottom, safe_left, safe_right) = safe_area_insets();
-    let (type_color, type_label) = type_style(&notification.subject.kind);
+    let (type_color, type_label) = type_style(palette, &notification.subject.kind);
 
     div()
         .size_full()
-        .bg(rgb(BG))
+        .bg(rgb(palette.bg))
         .pt(px(safe_top))
         .pb(px(safe_bottom))
         .pl(px(safe_left))
@@ -48,18 +41,18 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                 .items_center()
                 .gap_3()
                 .border_b_1()
-                .border_color(rgb(BORDER))
+                .border_color(rgb(palette.border))
                 .child(
                     div()
-                        .size(px(40.))
-                        .rounded_lg()
+                        .size(px(48.))
+                        .rounded_xl()
                         .border_1()
-                        .border_color(rgb(BORDER))
+                        .border_color(rgb(palette.border))
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_lg()
-                        .text_color(rgb(TEXT))
+                        .text_color(rgb(palette.text))
                         .on_mouse_down(
                             gpui::MouseButton::Left,
                             cx.listener(|router, _, _, cx| router.close_notification(cx)),
@@ -75,13 +68,13 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                         .child(
                             div()
                                 .text_base()
-                                .text_color(rgb(TEXT))
+                                .text_color(rgb(palette.text))
                                 .child("Notification"),
                         )
                         .child(
                             div()
                                 .text_xs()
-                                .text_color(rgb(SUBTEXT))
+                                .text_color(rgb(palette.subtext))
                                 .truncate()
                                 .child(notification.repository.full_name.clone()),
                         ),
@@ -117,9 +110,9 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                             div()
                                 .text_xs()
                                 .text_color(if notification.unread {
-                                    rgb(ACCENT)
+                                    rgb(palette.accent)
                                 } else {
-                                    rgb(SUBTEXT)
+                                    rgb(palette.subtext)
                                 })
                                 .child(if notification.unread {
                                     "Unread"
@@ -131,21 +124,26 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                 .child(
                     div()
                         .text_xl()
-                        .text_color(rgb(TEXT))
+                        .text_color(rgb(palette.text))
                         .child(notification.subject.title.clone()),
                 )
                 .child(
                     div()
                         .p_4()
                         .rounded_xl()
-                        .bg(rgb(SURFACE))
+                        .bg(rgb(palette.surface))
                         .border_1()
-                        .border_color(rgb(BORDER))
+                        .border_color(rgb(palette.border))
                         .flex()
                         .flex_col()
                         .gap_3()
-                        .child(meta_row("Reason", reason_label(&notification.reason)))
                         .child(meta_row(
+                            palette,
+                            "Reason",
+                            reason_label(&notification.reason),
+                        ))
+                        .child(meta_row(
+                            palette,
                             "Updated",
                             format_timestamp(&notification.updated_at),
                         ))
@@ -153,26 +151,29 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                             detail
                                 .author
                                 .as_ref()
-                                .map(|author| meta_row("Author", author))
+                                .map(|author| meta_row(palette, "Author", author))
                         }))
                         .children(detail.as_ref().and_then(|detail| {
-                            detail.state.as_ref().map(|state| meta_row("State", state))
+                            detail
+                                .state
+                                .as_ref()
+                                .map(|state| meta_row(palette, "State", state))
                         }))
                         .children(detail.as_ref().and_then(|detail| {
                             detail
                                 .comments
-                                .map(|comments| meta_row("Comments", comments.to_string()))
+                                .map(|comments| meta_row(palette, "Comments", comments.to_string()))
                         }))
                         .children(detail.as_ref().and_then(|detail| {
-                            detail
-                                .created_at
-                                .as_ref()
-                                .map(|created| meta_row("Created", format_timestamp(created)))
+                            detail.created_at.as_ref().map(|created| {
+                                meta_row(palette, "Created", format_timestamp(created))
+                            })
                         }))
                         .children(detail.as_ref().and_then(|detail| {
                             detail.updated_at.as_ref().and_then(|updated| {
-                                (updated != &notification.updated_at)
-                                    .then(|| meta_row("Detail updated", format_timestamp(updated)))
+                                (updated != &notification.updated_at).then(|| {
+                                    meta_row(palette, "Detail updated", format_timestamp(updated))
+                                })
                             })
                         })),
                 )
@@ -184,28 +185,28 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                         .child(
                             div()
                                 .text_sm()
-                                .text_color(rgb(SUBTEXT))
+                                .text_color(rgb(palette.subtext))
                                 .child("Description"),
                         )
                         .child(
                             div()
                                 .p_4()
                                 .rounded_xl()
-                                .bg(rgb(SURFACE))
+                                .bg(rgb(palette.surface))
                                 .border_1()
                                 .border_color(if error.is_some() {
-                                    rgb(YELLOW)
+                                    rgb(palette.yellow)
                                 } else {
-                                    rgb(BORDER)
+                                    rgb(palette.border)
                                 })
                                 .text_sm()
-                                .text_color(rgb(TEXT))
+                                .text_color(rgb(palette.text))
                                 .child(if loading {
                                     div().child("Loading details…").into_any_element()
                                 } else if let Some(message) = error {
                                     div().child(message).into_any_element()
                                 } else if let Some(markdown) = &router.notification_markdown {
-                                    markdown.render()
+                                    markdown.render(palette, cx)
                                 } else {
                                     div()
                                         .child("No description was provided.")
@@ -220,12 +221,20 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
                         .min_h(px(48.))
                         .w_full()
                         .rounded_xl()
-                        .bg(rgb(if can_open { ACCENT } else { BORDER }))
+                        .bg(rgb(if can_open {
+                            palette.accent
+                        } else {
+                            palette.border
+                        }))
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_sm()
-                        .text_color(rgb(if can_open { BG } else { SUBTEXT }))
+                        .text_color(rgb(if can_open {
+                            palette.on_accent
+                        } else {
+                            palette.subtext
+                        }))
                         .when(can_open, |button| {
                             button.on_mouse_down(
                                 gpui::MouseButton::Left,
@@ -246,32 +255,41 @@ pub fn render(router: &mut Router, cx: &mut gpui::Context<Router>) -> gpui::AnyE
         .into_any_element()
 }
 
-fn meta_row(label: impl Into<String>, value: impl Into<String>) -> gpui::AnyElement {
+fn meta_row(
+    palette: Palette,
+    label: impl Into<String>,
+    value: impl Into<String>,
+) -> gpui::AnyElement {
     div()
         .flex()
         .flex_row()
         .items_start()
         .justify_between()
         .gap_4()
-        .child(div().text_xs().text_color(rgb(SUBTEXT)).child(label.into()))
+        .child(
+            div()
+                .text_xs()
+                .text_color(rgb(palette.subtext))
+                .child(label.into()),
+        )
         .child(
             div()
                 .flex_1()
                 .text_right()
                 .text_xs()
-                .text_color(rgb(TEXT))
+                .text_color(rgb(palette.text))
                 .child(value.into()),
         )
         .into_any_element()
 }
 
-fn type_style(kind: &str) -> (u32, &'static str) {
+fn type_style(palette: Palette, kind: &str) -> (u32, &'static str) {
     match kind {
-        "PullRequest" => (0xBC8CFF, "Pull request"),
-        "Issue" => (GREEN, "Issue"),
-        "Release" => (ACCENT, "Release"),
-        "CheckSuite" => (YELLOW, "Checks"),
-        _ => (SUBTEXT, "Notification"),
+        "PullRequest" => (palette.purple, "Pull request"),
+        "Issue" => (palette.green, "Issue"),
+        "Release" => (palette.accent, "Release"),
+        "CheckSuite" => (palette.yellow, "Checks"),
+        _ => (palette.subtext, "Notification"),
     }
 }
 

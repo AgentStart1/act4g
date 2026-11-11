@@ -144,6 +144,18 @@ easylauncher {
     }
 }
 
+// EasyLauncher 6.4.1 fingerprints resource/manifest paths as scalar inputs.
+// Track their contents too so updated artwork invalidates generated variant icons.
+// Remove when https://github.com/usefulness/easylauncher-gradle-plugin/issues/910 is fixed.
+tasks.withType<com.project.starter.easylauncher.plugin.EasyLauncherTask>().configureEach {
+    inputs.files(resourceDirectories)
+        .withPropertyName("launcherResourceContents")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+    inputs.files(manifestFiles)
+        .withPropertyName("launcherManifestContents")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
+}
+
 detekt {
     buildUponDefaultConfig = true
     config.setFrom(rootProject.files("config/detekt/detekt.yml"))

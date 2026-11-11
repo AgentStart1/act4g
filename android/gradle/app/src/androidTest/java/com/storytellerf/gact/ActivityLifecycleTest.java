@@ -42,6 +42,8 @@ public final class ActivityLifecycleTest extends Instrumentation {
                 recreate(activity);
             } else if ("background".equals(scenario)) {
                 backgroundResume(activity, launch);
+            } else if ("theme".equals(scenario)) {
+                themeFollowsSystem(activity);
             } else if ("keyboard".equals(scenario)) {
                 keyboardKeepsSurfaceGeometry(activity);
 
@@ -53,6 +55,62 @@ public final class ActivityLifecycleTest extends Instrumentation {
         } catch (Throwable failure) {
             result.putString("stream", "FAIL: " + android.util.Log.getStackTraceString(failure));
             finish(Activity.RESULT_CANCELED, result);
+        }
+    }
+
+    private String shell(String command) throws Exception {
+        try (android.os.ParcelFileDescriptor fd = getUiAutomation().executeShellCommand(command);
+                java.io.FileInputStream stream = new java.io.FileInputStream(fd.getFileDescriptor())) {
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int count;
+            while ((count = stream.read(buffer)) != -1) output.write(buffer, 0, count);
+            return output.toString("UTF-8").trim();
+        }
+    }
+
+    private void themeFollowsSystem(Activity activity) throws Exception {
+        String original = shell("cmd uimode night").replace("Night mode: ", "").trim();
+        if (!java.util.Arrays.asList("yes", "no", "auto", "custom").contains(original)) {
+            throw new AssertionError("Unknown original night mode: " + original);
+        }
+        int thread = renderThreadId(activity);
+        try {
+            for (boolean dark : new boolean[] {false, true, false}) {
+                shell("cmd uimode night " + (dark ? "yes" : "no"));
+                int expected = dark ? 0xFF0D1117 : 0xFFFFFFFF;
+                long deadline = SystemClock.uptimeMillis() + TIMEOUT_MS;
+                boolean matched = false;
+                do {
+                    boolean[] resourcesMatch = {false};
+                    int[] sample = new int[2];
+                    runOnMainSync(() -> {
+                        android.view.View content = activity.findViewById(android.R.id.content);
+                        int[] location = new int[2];
+                        content.getLocationOnScreen(location);
+                        sample[0] = location[0] + 4;
+                        sample[1] = location[1] + content.getHeight() / 2;
+                        androidx.core.view.WindowInsetsControllerCompat bars =
+                                androidx.core.view.WindowCompat.getInsetsController(
+                                        activity.getWindow(), activity.getWindow().getDecorView());
+                        resourcesMatch[0] = activity.getColor(R.color.gpui_surface) == expected
+                                && bars.isAppearanceLightStatusBars() == !dark
+                                && bars.isAppearanceLightNavigationBars() == !dark;
+                    });
+                    Bitmap frame = getUiAutomation().takeScreenshot();
+                    if (frame != null) {
+                        matched = resourcesMatch[0] && frame.getPixel(sample[0], sample[1]) == expected;
+                        frame.recycle();
+                    }
+                    if (matched) break;
+                    SystemClock.sleep(100);
+                } while (SystemClock.uptimeMillis() < deadline);
+                if (!matched) throw new AssertionError("Native frame or system bars did not follow dark=" + dark);
+                if (thread != renderThreadId(activity)) throw new AssertionError("Theme change restarted native runtime");
+            }
+        } finally {
+            shell("cmd uimode night " + original);
+            runOnMainSync(activity::finish);
         }
     }
 
@@ -76,7 +134,7 @@ public final class ActivityLifecycleTest extends Instrumentation {
             runOnMainSync(() -> host.gpuiHideKeyboard(1));
         }
         awaitKeyboard(surface, false);
-        assertRenderedLike(frame);
+        awaitRenderedLike(frame);
         frame.recycle();
         runOnMainSync(activity::finish);
     }
@@ -163,11 +221,30 @@ public final class ActivityLifecycleTest extends Instrumentation {
         return id;
     }
 
+    private void awaitRenderedLike(Bitmap before) {
+        long deadline = SystemClock.uptimeMillis() + TIMEOUT_MS;
+        int matchingFrames = 0;
+        String difference;
+        do {
+            difference = renderedDifference(before);
+            matchingFrames = difference == null ? matchingFrames + 1 : 0;
+            if (matchingFrames >= 3) return;
+            SystemClock.sleep(100);
+        } while (SystemClock.uptimeMillis() < deadline);
+        throw new AssertionError("IME layout failed to settle: " + difference);
+    }
+
     private void assertRenderedLike(Bitmap before) {
+        String difference = renderedDifference(before);
+        if (difference != null) throw new AssertionError(difference);
+    }
+
+    private String renderedDifference(Bitmap before) {
         Bitmap after = getUiAutomation().takeScreenshot();
         if (before == null || after == null || before.getWidth() != after.getWidth()
                 || before.getHeight() != after.getHeight()) {
-            throw new AssertionError("Cannot compare rendered windows");
+            if (after != null) after.recycle();
+            return "Cannot compare rendered windows";
         }
         // Ignore system bars and compare distinctive content, so a focused black
         // Surface cannot pass solely because its background matches the theme.
@@ -185,9 +262,9 @@ public final class ActivityLifecycleTest extends Instrumentation {
         }
         after.recycle();
         if (content < 50 || matches < content * 0.9) {
-            throw new AssertionError("Rendered content did not survive lifecycle transition: "
-                    + matches + "/" + content);
+            return "Rendered content did not survive lifecycle transition: " + matches + "/" + content;
         }
+        return null;
     }
 
     private int colorDistance(int first, int second) {

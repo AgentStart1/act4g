@@ -9,7 +9,7 @@ name = "gact"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-gpui-mobile = { git = "https://github.com/itsbalamurali/gpui-mobile", rev = "5fd54f4554263ae06753e90472c7f2e2ff5d7495" }
+gpui-mobile = { git = "https://github.com/AgentStart1/gpui-mobile", rev = "058193381daf982dfb67217bceda6d30e5d66840" }
 gpui = { package = "gpui-pre", version = "=0.3.6", default-features = false }
 reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.6" }
 reqwest = { package = "gpui-pre-reqwest", version = "0.12.15", default-features = false, features = ["rustls-tls"] }

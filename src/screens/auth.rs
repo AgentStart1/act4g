@@ -1,17 +1,22 @@
-use gpui::{div, prelude::*, px, rgb};
-
+use super::theme::Palette;
 use super::{device_authorization_url, safe_area_insets, AuthPhase, Router};
+use gpui::{div, prelude::*, px, rgb};
+use std::sync::{Arc, OnceLock};
 
-const BG: u32 = 0x0D1117;
-const SURFACE: u32 = 0x161B22;
-const BORDER: u32 = 0x30363D;
-const TEXT: u32 = 0xC9D1D9;
-const SUBTEXT: u32 = 0x8B949E;
-const ACCENT: u32 = 0x58A6FF;
-const RED: u32 = 0xF85149;
-const CODE_BG: u32 = 0x21262D;
+fn app_icon() -> Arc<gpui::Image> {
+    static ICON: OnceLock<Arc<gpui::Image>> = OnceLock::new();
+    ICON.get_or_init(|| {
+        Arc::new(gpui::Image::from_bytes(
+            gpui::ImageFormat::Png,
+            include_bytes!("../../android/gradle/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png")
+                .to_vec(),
+        ))
+    })
+    .clone()
+}
 
 pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+    let palette = router.palette;
     let (safe_top, safe_bottom, safe_left, safe_right) = safe_area_insets();
 
     div()
@@ -34,42 +39,36 @@ pub fn render(router: &Router, cx: &mut gpui::Context<Router>) -> impl gpui::Int
                 .items_center()
                 .gap_3()
                 .child(
-                    div()
+                    gpui::img(app_icon())
                         .size(px(72.))
                         .rounded_2xl()
-                        .bg(rgb(SURFACE))
-                        .border_1()
-                        .border_color(rgb(BORDER))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_xl()
-                        .text_color(rgb(ACCENT))
-                        .child("4g"),
+                        .object_fit(gpui::ObjectFit::Contain),
                 )
-                .child(div().text_3xl().text_color(rgb(TEXT)).child("gact"))
+                .child(div().text_3xl().text_color(rgb(palette.text)).child("gact"))
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(SUBTEXT))
-                        .child("A GitHub client"),
+                        .text_color(rgb(palette.subtext))
+                        .child("Your GitHub, at a glance"),
                 ),
         )
         // Auth phase content
         .child(match &router.auth_phase {
-            AuthPhase::Idle => idle_view(cx).into_any_element(),
-            AuthPhase::RequestingCode => spinner_view("Requesting device code…").into_any_element(),
+            AuthPhase::Idle => idle_view(palette, cx).into_any_element(),
+            AuthPhase::RequestingCode => {
+                spinner_view(palette, "Requesting device code…").into_any_element()
+            }
             AuthPhase::WaitingForUser {
                 user_code,
                 verification_uri,
                 ..
-            } => waiting_view(user_code, verification_uri, cx).into_any_element(),
-            AuthPhase::Polling => spinner_view("Completing sign in…").into_any_element(),
-            AuthPhase::Error(msg) => error_view(msg, cx).into_any_element(),
+            } => waiting_view(palette, user_code, verification_uri, cx).into_any_element(),
+            AuthPhase::Polling => spinner_view(palette, "Completing sign in…").into_any_element(),
+            AuthPhase::Error(msg) => error_view(palette, msg, cx).into_any_element(),
         })
 }
 
-fn idle_view(cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+fn idle_view(palette: Palette, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
     div()
         .flex()
         .flex_col()
@@ -79,8 +78,8 @@ fn idle_view(cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
             div()
                 .w_full()
                 .h(px(52.))
-                .rounded_lg()
-                .bg(rgb(TEXT))
+                .rounded_xl()
+                .bg(rgb(palette.accent))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -94,20 +93,20 @@ fn idle_view(cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
                 .child(
                     div()
                         .text_base()
-                        .text_color(rgb(BG))
+                        .text_color(rgb(palette.on_accent))
                         .child("Sign in with GitHub"),
                 ),
         )
         .child(
             div()
                 .text_xs()
-                .text_color(rgb(SUBTEXT))
+                .text_color(rgb(palette.subtext))
                 .text_center()
                 .child("Opens GitHub device authorization in your browser"),
         )
 }
 
-fn spinner_view(msg: &str) -> impl gpui::IntoElement {
+fn spinner_view(palette: Palette, msg: &str) -> impl gpui::IntoElement {
     div()
         .flex()
         .flex_col()
@@ -118,23 +117,24 @@ fn spinner_view(msg: &str) -> impl gpui::IntoElement {
                 .size(px(32.))
                 .rounded_full()
                 .border_2()
-                .border_color(rgb(ACCENT))
+                .border_color(rgb(palette.accent))
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_sm()
-                .text_color(rgb(ACCENT))
+                .text_color(rgb(palette.accent))
                 .child("..."),
         )
         .child(
             div()
                 .text_sm()
-                .text_color(rgb(SUBTEXT))
+                .text_color(rgb(palette.subtext))
                 .child(msg.to_string()),
         )
 }
 
 fn waiting_view(
+    palette: Palette,
     user_code: &str,
     verification_uri: &str,
     cx: &mut gpui::Context<Router>,
@@ -154,32 +154,32 @@ fn waiting_view(
                 .w_full()
                 .p_5()
                 .rounded_xl()
-                .bg(rgb(SURFACE))
+                .bg(rgb(palette.surface))
                 .border_1()
-                .border_color(rgb(BORDER))
+                .border_color(rgb(palette.border))
                 .flex()
                 .flex_col()
                 .gap_4()
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(SUBTEXT))
+                        .text_color(rgb(palette.subtext))
                         .child("1. Open GitHub in your browser"),
                 )
                 .child(
                     div()
                         .px_3()
                         .py_2()
-                        .rounded_lg()
-                        .bg(rgb(CODE_BG))
+                        .rounded_xl()
+                        .bg(rgb(palette.code_bg))
                         .text_sm()
-                        .text_color(rgb(ACCENT))
+                        .text_color(rgb(palette.accent))
                         .child(uri.clone()),
                 )
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(SUBTEXT))
+                        .text_color(rgb(palette.subtext))
                         .child("2. Enter this code"),
                 )
                 // Big code display
@@ -188,19 +188,24 @@ fn waiting_view(
                         .w_full()
                         .py_4()
                         .rounded_xl()
-                        .bg(rgb(CODE_BG))
+                        .bg(rgb(palette.code_bg))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(div().text_3xl().text_color(rgb(TEXT)).child(code.clone())),
+                        .child(
+                            div()
+                                .text_3xl()
+                                .text_color(rgb(palette.text))
+                                .child(code.clone()),
+                        ),
                 )
                 .child(
                     div()
                         .w_full()
                         .h(px(44.))
-                        .rounded_lg()
+                        .rounded_xl()
                         .border_1()
-                        .border_color(rgb(BORDER))
+                        .border_color(rgb(palette.border))
                         .flex()
                         .items_center()
                         .justify_center()
@@ -214,12 +219,17 @@ fn waiting_view(
                                 }
                             }),
                         )
-                        .child(div().text_sm().text_color(rgb(ACCENT)).child("Copy code")),
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(rgb(palette.accent))
+                                .child("Copy code"),
+                        ),
                 )
                 .child(
                     div()
                         .text_xs()
-                        .text_color(rgb(SUBTEXT))
+                        .text_color(rgb(palette.subtext))
                         .text_center()
                         .child("Waiting for authorization…"),
                 ),
@@ -229,8 +239,8 @@ fn waiting_view(
             div()
                 .w_full()
                 .h(px(52.))
-                .rounded_lg()
-                .bg(rgb(TEXT))
+                .rounded_xl()
+                .bg(rgb(palette.accent))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -248,16 +258,21 @@ fn waiting_view(
                         }
                     }),
                 )
-                .child(div().text_base().text_color(rgb(BG)).child("Open GitHub")),
+                .child(
+                    div()
+                        .text_base()
+                        .text_color(rgb(palette.on_accent))
+                        .child("Open GitHub"),
+                ),
         )
         // Cancel button
         .child(
             div()
                 .w_full()
                 .h(px(44.))
-                .rounded_lg()
+                .rounded_xl()
                 .border_1()
-                .border_color(rgb(BORDER))
+                .border_color(rgb(palette.border))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -267,11 +282,20 @@ fn waiting_view(
                         router.cancel_device_flow(cx);
                     }),
                 )
-                .child(div().text_sm().text_color(rgb(SUBTEXT)).child("Cancel")),
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(palette.subtext))
+                        .child("Cancel"),
+                ),
         )
 }
 
-fn error_view(msg: &str, cx: &mut gpui::Context<Router>) -> impl gpui::IntoElement {
+fn error_view(
+    palette: Palette,
+    msg: &str,
+    cx: &mut gpui::Context<Router>,
+) -> impl gpui::IntoElement {
     let msg = msg.to_string();
     div()
         .flex()
@@ -283,26 +307,26 @@ fn error_view(msg: &str, cx: &mut gpui::Context<Router>) -> impl gpui::IntoEleme
                 .w_full()
                 .p_4()
                 .rounded_xl()
-                .bg(rgb(SURFACE))
+                .bg(rgb(palette.surface))
                 .border_1()
-                .border_color(rgb(RED))
+                .border_color(rgb(palette.red))
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(RED))
+                        .text_color(rgb(palette.red))
                         .child("Authentication failed"),
                 )
-                .child(div().text_xs().text_color(rgb(SUBTEXT)).child(msg)),
+                .child(div().text_xs().text_color(rgb(palette.subtext)).child(msg)),
         )
         .child(
             div()
                 .w_full()
                 .h(px(52.))
-                .rounded_lg()
-                .bg(rgb(TEXT))
+                .rounded_xl()
+                .bg(rgb(palette.accent))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -313,6 +337,11 @@ fn error_view(msg: &str, cx: &mut gpui::Context<Router>) -> impl gpui::IntoEleme
                         cx.notify();
                     }),
                 )
-                .child(div().text_base().text_color(rgb(BG)).child("Try again")),
+                .child(
+                    div()
+                        .text_base()
+                        .text_color(rgb(palette.on_accent))
+                        .child("Try again"),
+                ),
         )
 }

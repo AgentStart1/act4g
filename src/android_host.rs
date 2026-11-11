@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 static RENDER_THREAD_ID: AtomicI32 = AtomicI32::new(0);
 enum HostEvent {
     Back,
+    Theme(bool),
     KeyboardInset(f32),
 }
 
@@ -24,6 +25,15 @@ pub fn observe_events(cx: &mut gpui::Context<crate::screens::Router>) {
     cx.spawn(async move |router, cx| {
         while let Ok(event) = receiver.recv().await {
             match event {
+                HostEvent::Theme(dark) => {
+                    let _ = router.update(cx, |router, cx| {
+                        let palette = crate::screens::theme::Palette::for_dark(dark);
+                        if router.palette != palette {
+                            router.palette = palette;
+                            cx.notify();
+                        }
+                    });
+                }
                 HostEvent::KeyboardInset(inset) => {
                     let _ = router.update(cx, |router, cx| {
                         if router.keyboard_bottom_inset != inset {
@@ -80,6 +90,15 @@ extern "system" fn Java_com_storytellerf_gact_GactActivity_nativeKeyboardInset(
     let _ = host_events().0.try_send(HostEvent::KeyboardInset(inset));
 }
 
+#[no_mangle]
+extern "system" fn Java_com_storytellerf_gact_GactActivity_nativeThemeChanged(
+    _env: *mut JNIEnv,
+    _class: jclass,
+    dark: jboolean,
+) {
+    let _ = host_events().0.try_send(HostEvent::Theme(dark));
+}
+
 // gpui-mobile still links android-activity's exported glue, which requires this
 // symbol even for host-driven apps. The manifest launches a plain GactActivity;
 // no GPUI runtime may be created from this compatibility entry point.
@@ -88,12 +107,16 @@ fn android_main(_app: android_activity::AndroidApp) {
     log::error!("NativeActivity entry is unsupported; use GactActivity");
 }
 
-fn launch(cx: &mut App) {
+fn launch(cx: &mut App, dark: bool) {
     let http_client = crate::api::make_client().expect("reqwest client");
     let http_client: reqwest_client::ReqwestClient = http_client.into();
     cx.set_http_client(std::sync::Arc::new(http_client));
     match cx.open_window(WindowOptions::default(), |_, cx| {
-        cx.new(crate::screens::Router::new)
+        cx.new(|cx| {
+            let mut router = crate::screens::Router::new(cx);
+            router.palette = crate::screens::theme::Palette::for_dark(dark);
+            router
+        })
     }) {
         Ok(_) => {
             let thread_id = unsafe { libc::gettid() };
@@ -109,6 +132,7 @@ fn launch(cx: &mut App) {
 unsafe extern "system" fn Java_com_storytellerf_gact_GactActivity_nativeInitialize(
     raw_env: *mut JNIEnv,
     activity: jobject,
+    dark: jboolean,
 ) {
     android_logger::init_once(
         android_logger::Config::default()
@@ -123,7 +147,7 @@ unsafe extern "system" fn Java_com_storytellerf_gact_GactActivity_nativeInitiali
             log::error!("host Activity registration failed: {error}");
             jni::errors::Error::NullPtr("host Activity registration")
         })?;
-        host::start(launch);
+        host::start(move |cx| launch(cx, dark));
         Ok(())
     })
     .resolve::<jni::errors::ThrowRuntimeExAndDefault>();

@@ -29,7 +29,7 @@ python3 scripts/android-build-checks.py apk android/gradle/app/build/outputs/apk
 
 ### Android 宿主与生命周期回归
 
-应用使用未修改的上游 `gpui-mobile` 提交 `5fd54f4554263ae06753e90472c7f2e2ff5d7495` 及其匹配的 `gpui-pre` 0.3.6 包，没有内置平台补丁。`GactActivity` 管理 SurfaceView，经 `src/android_host.rs` 将生命周期、触摸、硬件按键和 IME 事件转发到 `android::host`。渲染线程、GPUI Application 和 Router 在整个进程生命周期内存活。重建 Activity 会替换 Java 引用和 surface，同时保留原生 UI 状态。进程重启则创建新运行时，并通过 Android Keystore 恢复凭据。
+应用固定使用 `gpui-mobile` 提交 `058193381daf982dfb67217bceda6d30e5d66840` 及其匹配的 `gpui-pre` 0.3.6 包。该提交包含 [gpui-mobile PR #71](https://github.com/itsbalamurali/gpui-mobile/pull/71) 提出的宿主 Activity emoji 资源加载修复。字体仍放在 APK 的 `assets/fonts` 目录，通过 Activity 的 AssetManager 加载一次。修复合并后，应将依赖切回上游仓库。项目没有内置平台补丁。`GactActivity` 管理 SurfaceView，经 `src/android_host.rs` 将生命周期、触摸、硬件按键和 IME 事件转发到 `android::host`。渲染线程、GPUI Application 和 Router 在整个进程生命周期内存活。重建 Activity 会替换 Java 引用和 surface，同时保留原生 UI 状态。进程重启则创建新运行时，并通过 Android Keystore 恢复凭据。
 
 `GactInputActivity` 将上游 InputConnection 示例适配为普通 Activity。凭据 JNI 调用通过当前 Activity 的类加载器解析应用类。保留未使用的 `android_main` 兼容符号，仅因为上游仍链接 android-activity 胶合代码；它从不构造 GPUI。Android 销毁原生 Surface 之前，先通过 `host::surface_destroyed` 释放它。UI 就绪要求 Surface 有效且原生运行时已启动；渲染线程 ID 可用于生命周期诊断。
 
@@ -53,6 +53,15 @@ adb shell am instrument -w -e scenario background -e backgroundMs 60000 \
 
 这些测试在已解锁设备上独立运行。默认场景重建 Activity 十次，每次转换后验证渲染线程保持一致且内容已渲染。后台场景从主屏幕返回后，检查 Activity、渲染线程和可见内容保持一致；默认等待 30 秒。成功时打印 `PASS`。原生崩溃会终止 instrumentation，并算作失败。失败时检查 `adb logcat` 和 `dumpsys dropbox --print data_app_native_crash`。测试包与正常的 `com.storytellerf.gact` 应用保持独立。键盘场景验证显示 IME 后视图和缓冲区尺寸不变，隐藏 IME 后恢复已渲染内容。
 
+`theme` instrumentation 场景依次切换系统浅色、深色和浅色模式，检查原生渲染背景、系统栏图标样式及原生渲染线程是否存活。即使断言失败，也会恢复原来的夜间模式。使用同一个隔离测试包运行：
+
+```sh
+adb shell am instrument -w -e scenario theme \
+  com.storytellerf.gact.lifecycle.test/com.storytellerf.gact.ActivityLifecycleTest
+```
+
+主题颜色位于 `src/screens/theme.rs`。Android Activity 在启动、恢复及配置变更时通过宿主事件通道传递当前配置。渲染使用不可变调色板；缓存的 Markdown 在渲染时解析链接和行内代码的颜色，使其随主题更新。Android 日间和夜间资源确保 GPUI 绘制前的启动背景与主题一致。
+
 两个 CI workflow 都使用 `--warning-mode all` 显示各条 Gradle 弃用警告。Java 编译使用 `-Xlint:deprecation`，显示编译器弃用 API 摘要对应的源码位置。这些警告保持可见，包括内置 GPUI Java 辅助代码和第三方构建插件中的警告。
 
 在当前依赖下，Gradle 10 reporting 警告源自 Detekt 1.23.8 的 `DetektPlugin.apply` 调用 `ReportingExtension.file(String)`。Java 警告涉及 `dev/gpui/mobile` 辅助代码中的旧相机、生物识别、位置、媒体会话、麦克风和返回导航 API。更新这些依赖或迁移 API 与选择 NDK 是不同的工作。NDK 安装步骤使用 Android CLI。固定版本的 `android-actions/setup-android` 依赖内部仍调用已弃用的 `sdkmanager` 配置 SDK 并接受许可证；其警告保持可见。
@@ -72,3 +81,15 @@ cargo clippy --locked --all-targets -- -D warnings
 Test workflow 在面向 `main` 的 pull request、向 `main` 的 push 和手动触发时运行。Rust 检查与 Android 检查及 debug 构建在不同 runner 上并行执行。两个 job 都必须通过；分支保护应要求 `Rust checks` 和 `Android checks and debug build`，取代原先合并的检查。Android job 先构建 JNI 库，再组装和验证 APK。
 
 Rust 缓存使用不同的 `shared-key`：`host-checks-v1`、`android-debug-v1`，以及用于发布的 `android-release-v1`。Main 上的运行会预热后续 pull request 的验证缓存。Pull request 也会保存供自身后续运行使用的 Rust 缓存。Gradle 保留默认缓存策略：main 写入缓存，pull request 以只读方式恢复。
+
+## 列表与输入状态
+
+Router 在整个生命周期内持有收件箱和仓库列表的滚动句柄。仓库条目列表按仓库及 Issues/PRs 筛选条件分别保存句柄，退出账户时清除。仓库条目首次加载期间，不将已保存的句柄绑定到空的加载布局，以免保存的偏移量被限制为零。
+
+收件箱使用紧凑的空状态，并在 IME 覆盖窗口时隐藏底部导航。键盘 instrumentation 场景在键盘关闭后等待三个恢复的帧，保留原有的内容比较阈值和超时；IME 不可见并不代表原生布局已恢复完成。
+
+在 [GPUI PR #66695](https://github.com/zed-industries/zed/pull/66695) 合并前，Markdown 链接使用 StyledText 布局命中测试和 Div 点击处理。按下和释放必须位于同一链接范围，拒绝非主键点击及 HTTP(S)/mailto 以外的目标。固定版本的 GPUI 包含同帧点击修复后，应改用 InteractiveText。
+
+## 启动图标与启动画面
+
+启动画面主题引用 `@mipmap/ic_launcher`，包含各构建变体的角标。EasyLauncher 6.4.1 将源目录路径声明为标量输入，可能导致修改图像后生成的图标未更新。在 [EasyLauncher issue #910](https://github.com/usefulness/easylauncher-gradle-plugin/issues/910) 解决前，应用额外跟踪资源和 manifest 的文件内容作为任务输入。增量修改图标应重新运行变体图标任务；未修改的构建应保持任务为最新状态。

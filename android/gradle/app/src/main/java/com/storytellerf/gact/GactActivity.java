@@ -2,6 +2,8 @@ package com.storytellerf.gact;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
+import androidx.core.view.WindowCompat;
 import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Build;
@@ -33,7 +35,8 @@ public final class GactActivity extends GactInputActivity implements SurfaceHold
         super.onCreate(state);
         appContext = getApplicationContext();
         System.loadLibrary("gact");
-        nativeInitialize();
+        nativeInitialize(isDarkTheme());
+        syncTheme();
         if (Build.VERSION.SDK_INT >= 33) {
             backCallback = () -> nativeBack();
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -79,6 +82,31 @@ public final class GactActivity extends GactInputActivity implements SurfaceHold
         deliverDeepLink(getIntent());
     }
 
+    private boolean isDarkTheme() {
+        return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    @SuppressWarnings("deprecation")
+    private void syncTheme() {
+        boolean dark = isDarkTheme();
+        int background = getColor(com.storytellerf.gact.R.color.gpui_surface);
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().setStatusBarColor(background);
+        getWindow().setNavigationBarColor(background);
+        androidx.core.view.WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(!dark);
+        controller.setAppearanceLightNavigationBars(!dark);
+        nativeThemeChanged(dark);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        syncTheme();
+    }
+
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         attachSurface(holder);
@@ -102,6 +130,7 @@ public final class GactActivity extends GactInputActivity implements SurfaceHold
     @Override
     protected void onResume() {
         super.onResume();
+        syncTheme();
         nativeResumed(true);
     }
 
@@ -162,7 +191,8 @@ public final class GactActivity extends GactInputActivity implements SurfaceHold
                 && nativeRenderThreadId() != 0;
     }
 
-    private native void nativeInitialize();
+    private native void nativeInitialize(boolean dark);
+    private static native void nativeThemeChanged(boolean dark);
     private static native void nativeBack();
     private static native void nativeSurfaceCreated(Surface surface, float scale);
     private static native void nativeSurfaceDestroyed();

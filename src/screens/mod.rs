@@ -2,10 +2,12 @@ pub mod auth;
 pub mod detail;
 pub mod home;
 mod markdown;
+mod navigation;
 pub mod repositories;
+mod scroll_positions;
+pub(crate) mod theme;
 
 use gpui::{div, prelude::*};
-use gpui_mobile::{set_system_chrome, StatusBarContentStyle, SystemChromeStyle};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -47,6 +49,8 @@ pub enum AuthPhase {
 }
 
 pub struct Router {
+    pub palette: theme::Palette,
+    pub scroll_positions: scroll_positions::ScrollPositions,
     pub keyboard_bottom_inset: f32,
     pub current_screen: Screen,
     pub auth_phase: AuthPhase,
@@ -57,6 +61,7 @@ pub struct Router {
     pub notifications_loading: bool,
     pub home_error: Option<String>,
     pub search_query: String,
+    pub unread_only: bool,
     pub selected_notification: Option<Notification>,
     pub notification_detail: Option<NotificationDetail>,
     pub notification_markdown: Option<markdown::Document>,
@@ -83,6 +88,8 @@ impl Router {
         crate::android_host::observe_events(cx);
         let saved_token = crate::credentials::load_token();
         let mut router = Self {
+            palette: theme::Palette::for_dark(false),
+            scroll_positions: Default::default(),
             keyboard_bottom_inset: 0.,
             current_screen: if saved_token.is_some() {
                 Screen::Home
@@ -97,6 +104,7 @@ impl Router {
             notifications_loading: false,
             home_error: None,
             search_query: String::new(),
+            unread_only: false,
             selected_notification: None,
             notification_detail: None,
             notification_markdown: None,
@@ -741,6 +749,8 @@ impl Router {
         self.notifications_loading = false;
         self.home_error = None;
         self.search_query.clear();
+        self.scroll_positions = Default::default();
+        self.unread_only = false;
         self.selected_notification = None;
         self.notification_detail = None;
         self.notification_markdown = None;
@@ -783,17 +793,12 @@ impl gpui::Render for Router {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
-        set_system_chrome(&SystemChromeStyle {
-            status_bar_style: StatusBarContentStyle::Light,
-            ..Default::default()
-        });
-
         div()
             .flex()
             .flex_col()
             .size_full()
             .pb(gpui::px(self.keyboard_bottom_inset))
-            .bg(gpui::rgb(0x0D1117))
+            .bg(gpui::rgb(self.palette.bg))
             .child(
                 div()
                     .flex_1()

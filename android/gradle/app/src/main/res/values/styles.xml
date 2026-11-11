@@ -10,6 +10,8 @@
         <item name="android:windowFullscreen">false</item>
         <item name="android:statusBarColor">@color/gpui_surface</item>
         <item name="android:navigationBarColor">@color/gpui_surface</item>
+        <item name="android:windowLightStatusBar">@bool/gpui_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/gpui_light_bars</item>
         <item name="android:windowContentTransitions">false</item>
     </style>
 

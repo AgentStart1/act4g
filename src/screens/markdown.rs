@@ -1,6 +1,5 @@
-use gpui::{
-    div, prelude::*, px, rgb, FontStyle, FontWeight, HighlightStyle, InteractiveText, StyledText,
-};
+use super::theme::Palette;
+use gpui::{div, prelude::*, px, rgb, FontStyle, FontWeight, HighlightStyle, StyledText};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
 
@@ -147,7 +146,19 @@ impl Document {
         document
     }
 
-    pub fn render(&self) -> gpui::AnyElement {
+    pub fn render(&self, palette: Palette, cx: &gpui::App) -> gpui::AnyElement {
+        // The mobile text backend resolves real family names, not CSS generic aliases.
+        let fonts = cx.text_system().all_font_names();
+        let code_font = [
+            "Droid Sans Mono",
+            "Roboto Mono",
+            "Menlo",
+            "Consolas",
+            "DejaVu Sans Mono",
+            "monospace",
+        ]
+        .into_iter()
+        .find(|candidate| fonts.iter().any(|name| name == candidate));
         div()
             .w_full()
             .min_w_0()
@@ -176,7 +187,7 @@ impl Document {
                         )
                         .child(
                             div()
-                                .text_color(rgb(0x58A6FF))
+                                .text_color(rgb(palette.accent))
                                 .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| {
                                     open_link(&url)
                                 })
@@ -198,9 +209,13 @@ impl Document {
                                 .min_w_0()
                                 .p_2()
                                 .border_1()
-                                .border_color(rgb(0x30363D))
+                                .border_color(rgb(palette.border))
                                 .when(cell.heading, |el| el.font_weight(FontWeight::BOLD))
-                                .child(inline_text(cell, format!("markdown-{index}-{cell_index}")))
+                                .child(inline_text(
+                                    palette,
+                                    cell,
+                                    format!("markdown-{index}-{cell_index}"),
+                                ))
                         }))
                         .into_any_element();
                 }
@@ -215,26 +230,69 @@ impl Document {
                     .when(block.code, |el| {
                         el.p_3()
                             .rounded_lg()
-                            .bg(rgb(0x0D1117))
-                            .font_family("monospace")
+                            .bg(rgb(palette.bg))
+                            .when_some(code_font, |el, family| el.font_family(family))
                     })
                     .when(block.quote, |el| {
-                        el.pl_3().border_l_2().border_color(rgb(0x8B949E))
+                        el.pl_3().border_l_2().border_color(rgb(palette.subtext))
                     })
-                    .when(block.rule, |el| el.h(px(1.)).bg(rgb(0x30363D)))
-                    .child(inline_text(block, format!("markdown-{index}")))
+                    .when(block.rule, |el| el.h(px(1.)).bg(rgb(palette.border)))
+                    .child(inline_text(palette, block, format!("markdown-{index}")))
                     .into_any_element()
             }))
             .into_any_element()
     }
 }
 
-fn inline_text(block: &Block, id: String) -> InteractiveText {
-    let ranges = block.links.iter().map(|(range, _)| range.clone()).collect();
-    let urls: Vec<_> = block.links.iter().map(|(_, url)| url.clone()).collect();
-    let text = StyledText::new(block.text.clone()).with_highlights(block.highlights.clone());
-    InteractiveText::new(gpui::SharedString::from(id), text)
-        .on_click(ranges, move |index, _, _| open_link(&urls[index]))
+// Until https://github.com/zed-industries/zed/pull/66695 reaches the pinned GPUI,
+// InteractiveText installs mouse-up only after a redraw. A div's
+// click handler supports same-frame touch taps; keep range checks for both ends.
+fn inline_text(palette: Palette, block: &Block, id: String) -> gpui::AnyElement {
+    let text =
+        StyledText::new(block.text.clone()).with_highlights(themed_highlights(block, palette));
+    let layout = text.layout().clone();
+    let links = block.links.clone();
+    div()
+        .id(gpui::SharedString::from(id))
+        .child(text)
+        .on_click(move |event, _, _| {
+            if !event.standard_click() {
+                return;
+            }
+            let (down, up) = match event {
+                gpui::ClickEvent::Mouse(event) => (event.down.position, event.up.position),
+                gpui::ClickEvent::Touch(event) => (event.position, event.position),
+                gpui::ClickEvent::Keyboard(_) => return,
+            };
+            if let (Ok(down), Ok(up)) = (
+                layout.index_for_position(down),
+                layout.index_for_position(up),
+            ) {
+                if let Some((_, url)) = links
+                    .iter()
+                    .find(|(range, _)| range.contains(&down) && range.contains(&up))
+                {
+                    open_link(url);
+                }
+            }
+        })
+        .into_any_element()
+}
+
+fn themed_highlights(
+    block: &Block,
+    palette: Palette,
+) -> impl Iterator<Item = (Range<usize>, HighlightStyle)> + '_ {
+    block.highlights.iter().map(move |(range, style)| {
+        let mut style = *style;
+        if style.color.is_some() {
+            style.color = Some(rgb(palette.accent).into());
+        }
+        if style.background_color.is_some() {
+            style.background_color = Some(rgb(palette.code_bg).into());
+        }
+        (range.clone(), style)
+    })
 }
 
 fn append(block: &mut Block, text: &str, styles: &[HighlightStyle]) {
@@ -273,6 +331,22 @@ fn open_link(url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_markdown_recolors_links_and_inline_code_when_theme_changes() {
+        let doc = Document::parse("[Link](https://example.com) and `code`");
+        let block = &doc.blocks[0];
+        for dark in [false, true, false] {
+            let palette = Palette::for_dark(dark);
+            let highlights: Vec<_> = themed_highlights(block, palette).collect();
+            assert!(highlights
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(palette.accent).into())));
+            assert!(highlights
+                .iter()
+                .any(|(_, style)| style.background_color == Some(rgb(palette.code_bg).into())));
+        }
+    }
 
     #[test]
     fn formats_nested_inline_styles_and_unicode_links() {
