@@ -1,21 +1,24 @@
 name: Publish Android
 
 on:
+  release:
+    types: [published]
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 env:
+  RELEASE_TAG: ${{ github.event.release.tag_name }}
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUST_FONTCONFIG_DLOPEN: "on"
 
 jobs:
   build:
+    if: (github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v'))
     name: Build signed Android package
     runs-on: ubuntu-24.04
     outputs:
@@ -31,11 +34,11 @@ jobs:
         id: package
         shell: bash
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
             {
               echo "build_type=Release"
-              echo "artifact_name=gact-${GITHUB_REF_NAME}"
-              echo "version_name=${GITHUB_REF_NAME#v}"
+              echo "artifact_name=gact-${RELEASE_TAG}"
+              echo "version_name=${RELEASE_TAG#v}"
               echo "source_apk=android/gradle/app/build/outputs/apk/release/app-release.apk"
             } >> "$GITHUB_OUTPUT"
           else
@@ -152,7 +155,7 @@ jobs:
   release:
     name: Release APK
     needs: build
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-24.04
 
     steps:
@@ -162,20 +165,10 @@ jobs:
           name: ${{ needs.build.outputs.artifact_name }}
           path: dist
 
-      - name: Create release when needed
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
-          fi
-
       - name: Upload APK to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           ARTIFACT_NAME: ${{ needs.build.outputs.artifact_name }}
         shell: bash
-        run: gh release upload "$GITHUB_REF_NAME" "dist/${ARTIFACT_NAME}.apk" --clobber
+        run: gh release upload "$RELEASE_TAG" "dist/${ARTIFACT_NAME}.apk" --clobber
